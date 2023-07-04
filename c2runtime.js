@@ -15540,6 +15540,714 @@ cr.plugins_.AJAX = function(runtime)
 }());
 ;
 ;
+cr.plugins_.Arr = function(runtime)
+{
+	this.runtime = runtime;
+};
+(function ()
+{
+	var pluginProto = cr.plugins_.Arr.prototype;
+	pluginProto.Type = function(plugin)
+	{
+		this.plugin = plugin;
+		this.runtime = plugin.runtime;
+	};
+	var typeProto = pluginProto.Type.prototype;
+	typeProto.onCreate = function()
+	{
+	};
+	pluginProto.Instance = function(type)
+	{
+		this.type = type;
+		this.runtime = type.runtime;
+	};
+	var instanceProto = pluginProto.Instance.prototype;
+	var arrCache = [];
+	function allocArray()
+	{
+		if (arrCache.length)
+			return arrCache.pop();
+		else
+			return [];
+	};
+	if (!Array.isArray)
+	{
+		Array.isArray = function (vArg) {
+			return Object.prototype.toString.call(vArg) === "[object Array]";
+		};
+	}
+	function freeArray(a)
+	{
+		var i, len;
+		for (i = 0, len = a.length; i < len; i++)
+		{
+			if (Array.isArray(a[i]))
+				freeArray(a[i]);
+		}
+		cr.clearArray(a);
+		arrCache.push(a);
+	};
+	instanceProto.onCreate = function()
+	{
+		this.cx = this.properties[0];
+		this.cy = this.properties[1];
+		this.cz = this.properties[2];
+		if (!this.recycled)
+			this.arr = allocArray();
+		var a = this.arr;
+		a.length = this.cx;
+		var x, y, z;
+		for (x = 0; x < this.cx; x++)
+		{
+			if (!a[x])
+				a[x] = allocArray();
+			a[x].length = this.cy;
+			for (y = 0; y < this.cy; y++)
+			{
+				if (!a[x][y])
+					a[x][y] = allocArray();
+				a[x][y].length = this.cz;
+				for (z = 0; z < this.cz; z++)
+					a[x][y][z] = 0;
+			}
+		}
+		this.forX = [];
+		this.forY = [];
+		this.forZ = [];
+		this.forDepth = -1;
+	};
+	instanceProto.onDestroy = function ()
+	{
+		var x;
+		for (x = 0; x < this.cx; x++)
+			freeArray(this.arr[x]);		// will recurse down and recycle other arrays
+		cr.clearArray(this.arr);
+	};
+	instanceProto.at = function (x, y, z)
+	{
+		x = Math.floor(x);
+		y = Math.floor(y);
+		z = Math.floor(z);
+		if (isNaN(x) || x < 0 || x > this.cx - 1)
+			return 0;
+		if (isNaN(y) || y < 0 || y > this.cy - 1)
+			return 0;
+		if (isNaN(z) || z < 0 || z > this.cz - 1)
+			return 0;
+		return this.arr[x][y][z];
+	};
+	instanceProto.set = function (x, y, z, val)
+	{
+		x = Math.floor(x);
+		y = Math.floor(y);
+		z = Math.floor(z);
+		if (isNaN(x) || x < 0 || x > this.cx - 1)
+			return;
+		if (isNaN(y) || y < 0 || y > this.cy - 1)
+			return;
+		if (isNaN(z) || z < 0 || z > this.cz - 1)
+			return;
+		this.arr[x][y][z] = val;
+	};
+	instanceProto.getAsJSON = function ()
+	{
+		return JSON.stringify({
+			"c2array": true,
+			"size": [this.cx, this.cy, this.cz],
+			"data": this.arr
+		});
+	};
+	instanceProto.saveToJSON = function ()
+	{
+		return {
+			"size": [this.cx, this.cy, this.cz],
+			"data": this.arr
+		};
+	};
+	instanceProto.loadFromJSON = function (o)
+	{
+		var sz = o["size"];
+		this.cx = sz[0];
+		this.cy = sz[1];
+		this.cz = sz[2];
+		this.arr = o["data"];
+	};
+	instanceProto.setSize = function (w, h, d)
+	{
+		if (w < 0) w = 0;
+		if (h < 0) h = 0;
+		if (d < 0) d = 0;
+		if (this.cx === w && this.cy === h && this.cz === d)
+			return;		// no change
+		this.cx = w;
+		this.cy = h;
+		this.cz = d;
+		var x, y, z;
+		var a = this.arr;
+		a.length = w;
+		for (x = 0; x < this.cx; x++)
+		{
+			if (cr.is_undefined(a[x]))
+				a[x] = allocArray();
+			a[x].length = h;
+			for (y = 0; y < this.cy; y++)
+			{
+				if (cr.is_undefined(a[x][y]))
+					a[x][y] = allocArray();
+				a[x][y].length = d;
+				for (z = 0; z < this.cz; z++)
+				{
+					if (cr.is_undefined(a[x][y][z]))
+						a[x][y][z] = 0;
+				}
+			}
+		}
+	};
+	instanceProto.getForX = function ()
+	{
+		if (this.forDepth >= 0 && this.forDepth < this.forX.length)
+			return this.forX[this.forDepth];
+		else
+			return 0;
+	};
+	instanceProto.getForY = function ()
+	{
+		if (this.forDepth >= 0 && this.forDepth < this.forY.length)
+			return this.forY[this.forDepth];
+		else
+			return 0;
+	};
+	instanceProto.getForZ = function ()
+	{
+		if (this.forDepth >= 0 && this.forDepth < this.forZ.length)
+			return this.forZ[this.forDepth];
+		else
+			return 0;
+	};
+	function Cnds() {};
+	Cnds.prototype.CompareX = function (x, cmp, val)
+	{
+		return cr.do_cmp(this.at(x, 0, 0), cmp, val);
+	};
+	Cnds.prototype.CompareXY = function (x, y, cmp, val)
+	{
+		return cr.do_cmp(this.at(x, y, 0), cmp, val);
+	};
+	Cnds.prototype.CompareXYZ = function (x, y, z, cmp, val)
+	{
+		return cr.do_cmp(this.at(x, y, z), cmp, val);
+	};
+	instanceProto.doForEachTrigger = function (current_event)
+	{
+		this.runtime.pushCopySol(current_event.solModifiers);
+		current_event.retrigger();
+		this.runtime.popSol(current_event.solModifiers);
+	};
+	Cnds.prototype.ArrForEach = function (dims)
+	{
+        var current_event = this.runtime.getCurrentEventStack().current_event;
+		this.forDepth++;
+		var forDepth = this.forDepth;
+		if (forDepth === this.forX.length)
+		{
+			this.forX.push(0);
+			this.forY.push(0);
+			this.forZ.push(0);
+		}
+		else
+		{
+			this.forX[forDepth] = 0;
+			this.forY[forDepth] = 0;
+			this.forZ[forDepth] = 0;
+		}
+		switch (dims) {
+		case 0:
+			for (this.forX[forDepth] = 0; this.forX[forDepth] < this.cx; this.forX[forDepth]++)
+			{
+				for (this.forY[forDepth] = 0; this.forY[forDepth] < this.cy; this.forY[forDepth]++)
+				{
+					for (this.forZ[forDepth] = 0; this.forZ[forDepth] < this.cz; this.forZ[forDepth]++)
+					{
+						this.doForEachTrigger(current_event);
+					}
+				}
+			}
+			break;
+		case 1:
+			for (this.forX[forDepth] = 0; this.forX[forDepth] < this.cx; this.forX[forDepth]++)
+			{
+				for (this.forY[forDepth] = 0; this.forY[forDepth] < this.cy; this.forY[forDepth]++)
+				{
+					this.doForEachTrigger(current_event);
+				}
+			}
+			break;
+		case 2:
+			for (this.forX[forDepth] = 0; this.forX[forDepth] < this.cx; this.forX[forDepth]++)
+			{
+				this.doForEachTrigger(current_event);
+			}
+			break;
+		}
+		this.forDepth--;
+		return false;
+	};
+	Cnds.prototype.CompareCurrent = function (cmp, val)
+	{
+		return cr.do_cmp(this.at(this.getForX(), this.getForY(), this.getForZ()), cmp, val);
+	};
+	Cnds.prototype.Contains = function(val)
+	{
+		var x, y, z;
+		for (x = 0; x < this.cx; x++)
+		{
+			for (y = 0; y < this.cy; y++)
+			{
+				for (z = 0; z < this.cz; z++)
+				{
+					if (this.arr[x][y][z] === val)
+						return true;
+				}
+			}
+		}
+		return false;
+	};
+	Cnds.prototype.IsEmpty = function ()
+	{
+		return this.cx === 0 || this.cy === 0 || this.cz === 0;
+	};
+	Cnds.prototype.CompareSize = function (axis, cmp, value)
+	{
+		var s = 0;
+		switch (axis) {
+		case 0:
+			s = this.cx;
+			break;
+		case 1:
+			s = this.cy;
+			break;
+		case 2:
+			s = this.cz;
+			break;
+		}
+		return cr.do_cmp(s, cmp, value);
+	};
+	pluginProto.cnds = new Cnds();
+	function Acts() {};
+	Acts.prototype.Clear = function ()
+	{
+		var x, y, z;
+		for (x = 0; x < this.cx; x++)
+			for (y = 0; y < this.cy; y++)
+				for (z = 0; z < this.cz; z++)
+					this.arr[x][y][z] = 0;
+	};
+	Acts.prototype.SetSize = function (w, h, d)
+	{
+		this.setSize(w, h, d);
+	};
+	Acts.prototype.SetX = function (x, val)
+	{
+		this.set(x, 0, 0, val);
+	};
+	Acts.prototype.SetXY = function (x, y, val)
+	{
+		this.set(x, y, 0, val);
+	};
+	Acts.prototype.SetXYZ = function (x, y, z, val)
+	{
+		this.set(x, y, z, val);
+	};
+	Acts.prototype.Push = function (where, value, axis)
+	{
+		var x = 0, y = 0, z = 0;
+		var a = this.arr;
+		switch (axis) {
+		case 0:	// X axis
+			if (where === 0)	// back
+			{
+				x = a.length;
+				a.push(allocArray());
+			}
+			else				// front
+			{
+				x = 0;
+				a.unshift(allocArray());
+			}
+			a[x].length = this.cy;
+			for ( ; y < this.cy; y++)
+			{
+				a[x][y] = allocArray();
+				a[x][y].length = this.cz;
+				for (z = 0; z < this.cz; z++)
+					a[x][y][z] = value;
+			}
+			this.cx++;
+			break;
+		case 1: // Y axis
+			for ( ; x < this.cx; x++)
+			{
+				if (where === 0)	// back
+				{
+					y = a[x].length;
+					a[x].push(allocArray());
+				}
+				else				// front
+				{
+					y = 0;
+					a[x].unshift(allocArray());
+				}
+				a[x][y].length = this.cz;
+				for (z = 0; z < this.cz; z++)
+					a[x][y][z] = value;
+			}
+			this.cy++;
+			break;
+		case 2:	// Z axis
+			for ( ; x < this.cx; x++)
+			{
+				for (y = 0; y < this.cy; y++)
+				{
+					if (where === 0)	// back
+					{
+						a[x][y].push(value);
+					}
+					else				// front
+					{
+						a[x][y].unshift(value);
+					}
+				}
+			}
+			this.cz++;
+			break;
+		}
+	};
+	Acts.prototype.Pop = function (where, axis)
+	{
+		var x = 0, y = 0, z = 0;
+		var a = this.arr;
+		switch (axis) {
+		case 0:	// X axis
+			if (this.cx === 0)
+				break;
+			if (where === 0)	// back
+			{
+				freeArray(a.pop());
+			}
+			else				// front
+			{
+				freeArray(a.shift());
+			}
+			this.cx--;
+			break;
+		case 1: // Y axis
+			if (this.cy === 0)
+				break;
+			for ( ; x < this.cx; x++)
+			{
+				if (where === 0)	// back
+				{
+					freeArray(a[x].pop());
+				}
+				else				// front
+				{
+					freeArray(a[x].shift());
+				}
+			}
+			this.cy--;
+			break;
+		case 2:	// Z axis
+			if (this.cz === 0)
+				break;
+			for ( ; x < this.cx; x++)
+			{
+				for (y = 0; y < this.cy; y++)
+				{
+					if (where === 0)	// back
+					{
+						a[x][y].pop();
+					}
+					else				// front
+					{
+						a[x][y].shift();
+					}
+				}
+			}
+			this.cz--;
+			break;
+		}
+	};
+	Acts.prototype.Reverse = function (axis)
+	{
+		var x = 0, y = 0, z = 0;
+		var a = this.arr;
+		if (this.cx === 0 || this.cy === 0 || this.cz === 0)
+			return;		// no point reversing empty array
+		switch (axis) {
+		case 0:	// X axis
+			a.reverse();
+			break;
+		case 1: // Y axis
+			for ( ; x < this.cx; x++)
+				a[x].reverse();
+			break;
+		case 2:	// Z axis
+			for ( ; x < this.cx; x++)
+				for (y = 0; y < this.cy; y++)
+					a[x][y].reverse();
+			break;
+		}
+	};
+	function compareValues(va, vb)
+	{
+		if (cr.is_number(va) && cr.is_number(vb))
+			return va - vb;
+		else
+		{
+			var sa = "" + va;
+			var sb = "" + vb;
+			if (sa < sb)
+				return -1;
+			else if (sa > sb)
+				return 1;
+			else
+				return 0;
+		}
+	}
+	Acts.prototype.Sort = function (axis)
+	{
+		var x = 0, y = 0, z = 0;
+		var a = this.arr;
+		if (this.cx === 0 || this.cy === 0 || this.cz === 0)
+			return;		// no point sorting empty array
+		switch (axis) {
+		case 0:	// X axis
+			a.sort(function (a, b) {
+				return compareValues(a[0][0], b[0][0]);
+			});
+			break;
+		case 1: // Y axis
+			for ( ; x < this.cx; x++)
+			{
+				a[x].sort(function (a, b) {
+					return compareValues(a[0], b[0]);
+				});
+			}
+			break;
+		case 2:	// Z axis
+			for ( ; x < this.cx; x++)
+			{
+				for (y = 0; y < this.cy; y++)
+				{
+					a[x][y].sort(compareValues);
+				}
+			}
+			break;
+		}
+	};
+	Acts.prototype.Delete = function (index, axis)
+	{
+		var x = 0, y = 0, z = 0;
+		index = Math.floor(index);
+		var a = this.arr;
+		if (index < 0)
+			return;
+		switch (axis) {
+		case 0:	// X axis
+			if (index >= this.cx)
+				break;
+			freeArray(a[index]);
+			a.splice(index, 1);
+			this.cx--;
+			break;
+		case 1: // Y axis
+			if (index >= this.cy)
+				break;
+			for ( ; x < this.cx; x++)
+			{
+				freeArray(a[x][index]);
+				a[x].splice(index, 1);
+			}
+			this.cy--;
+			break;
+		case 2:	// Z axis
+			if (index >= this.cz)
+				break;
+			for ( ; x < this.cx; x++)
+			{
+				for (y = 0; y < this.cy; y++)
+				{
+					a[x][y].splice(index, 1);
+				}
+			}
+			this.cz--;
+			break;
+		}
+	};
+	Acts.prototype.Insert = function (value, index, axis)
+	{
+		var x = 0, y = 0, z = 0;
+		index = Math.floor(index);
+		var a = this.arr;
+		if (index < 0)
+			return;
+		switch (axis) {
+		case 0:	// X axis
+			if (index > this.cx)
+				return;
+			x = index;
+			a.splice(x, 0, allocArray());
+			a[x].length = this.cy;
+			for ( ; y < this.cy; y++)
+			{
+				a[x][y] = allocArray();
+				a[x][y].length = this.cz;
+				for (z = 0; z < this.cz; z++)
+					a[x][y][z] = value;
+			}
+			this.cx++;
+			break;
+		case 1: // Y axis
+			if (index > this.cy)
+				return;
+			for ( ; x < this.cx; x++)
+			{
+				y = index;
+				a[x].splice(y, 0, allocArray());
+				a[x][y].length = this.cz;
+				for (z = 0; z < this.cz; z++)
+					a[x][y][z] = value;
+			}
+			this.cy++;
+			break;
+		case 2:	// Z axis
+			if (index > this.cz)
+				return;
+			for ( ; x < this.cx; x++)
+			{
+				for (y = 0; y < this.cy; y++)
+				{
+					a[x][y].splice(index, 0, value);
+				}
+			}
+			this.cz++;
+			break;
+		}
+	};
+	Acts.prototype.JSONLoad = function (json_)
+	{
+		var o;
+		try {
+			o = JSON.parse(json_);
+		}
+		catch(e) { return; }
+		if (!o["c2array"])		// presumably not a c2array object
+			return;
+		var sz = o["size"];
+		this.cx = sz[0];
+		this.cy = sz[1];
+		this.cz = sz[2];
+		this.arr = o["data"];
+	};
+	Acts.prototype.JSONDownload = function (filename)
+	{
+		var a = document.createElement("a");
+		if (typeof a.download === "undefined")
+		{
+			var str = 'data:text/html,' + encodeURIComponent("<p><a download='" + filename + "' href=\"data:application/json,"
+				+ encodeURIComponent(this.getAsJSON())
+				+ "\">Download link</a></p>");
+			window.open(str);
+		}
+		else
+		{
+			var body = document.getElementsByTagName("body")[0];
+			a.textContent = filename;
+			a.href = "data:application/json," + encodeURIComponent(this.getAsJSON());
+			a.download = filename;
+			body.appendChild(a);
+			var clickEvent = document.createEvent("MouseEvent");
+			clickEvent.initMouseEvent("click", true, true, window, 0, 0, 0, 0, 0, false, false, false, false, 0, null);
+			a.dispatchEvent(clickEvent);
+			body.removeChild(a);
+		}
+	};
+	pluginProto.acts = new Acts();
+	function Exps() {};
+	Exps.prototype.At = function (ret, x, y_, z_)
+	{
+		var y = y_ || 0;
+		var z = z_ || 0;
+		ret.set_any(this.at(x, y, z));
+	};
+	Exps.prototype.Width = function (ret)
+	{
+		ret.set_int(this.cx);
+	};
+	Exps.prototype.Height = function (ret)
+	{
+		ret.set_int(this.cy);
+	};
+	Exps.prototype.Depth = function (ret)
+	{
+		ret.set_int(this.cz);
+	};
+	Exps.prototype.CurX = function (ret)
+	{
+		ret.set_int(this.getForX());
+	};
+	Exps.prototype.CurY = function (ret)
+	{
+		ret.set_int(this.getForY());
+	};
+	Exps.prototype.CurZ = function (ret)
+	{
+		ret.set_int(this.getForZ());
+	};
+	Exps.prototype.CurValue = function (ret)
+	{
+		ret.set_any(this.at(this.getForX(), this.getForY(), this.getForZ()));
+	};
+	Exps.prototype.Front = function (ret)
+	{
+		ret.set_any(this.at(0, 0, 0));
+	};
+	Exps.prototype.Back = function (ret)
+	{
+		ret.set_any(this.at(this.cx - 1, 0, 0));
+	};
+	Exps.prototype.IndexOf = function (ret, v)
+	{
+		for (var i = 0; i < this.cx; i++)
+		{
+			if (this.arr[i][0][0] === v)
+			{
+				ret.set_int(i);
+				return;
+			}
+		}
+		ret.set_int(-1);
+	};
+	Exps.prototype.LastIndexOf = function (ret, v)
+	{
+		for (var i = this.cx - 1; i >= 0; i--)
+		{
+			if (this.arr[i][0][0] === v)
+			{
+				ret.set_int(i);
+				return;
+			}
+		}
+		ret.set_int(-1);
+	};
+	Exps.prototype.AsJSON = function (ret)
+	{
+		ret.set_string(this.getAsJSON());
+	};
+	pluginProto.exps = new Exps();
+}());
+;
+;
 cr.plugins_.Audio = function(runtime)
 {
 	this.runtime = runtime;
@@ -19442,6 +20150,188 @@ cr.plugins_.Browser = function(runtime)
 }());
 ;
 ;
+cr.plugins_.Dictionary = function(runtime)
+{
+	this.runtime = runtime;
+};
+(function ()
+{
+	var pluginProto = cr.plugins_.Dictionary.prototype;
+	pluginProto.Type = function(plugin)
+	{
+		this.plugin = plugin;
+		this.runtime = plugin.runtime;
+	};
+	var typeProto = pluginProto.Type.prototype;
+	typeProto.onCreate = function()
+	{
+	};
+	pluginProto.Instance = function(type)
+	{
+		this.type = type;
+		this.runtime = type.runtime;
+	};
+	var instanceProto = pluginProto.Instance.prototype;
+	instanceProto.onCreate = function()
+	{
+		this.dictionary = {};
+		this.cur_key = "";		// current key in for-each loop
+		this.key_count = 0;
+	};
+	instanceProto.saveToJSON = function ()
+	{
+		return this.dictionary;
+	};
+	instanceProto.loadFromJSON = function (o)
+	{
+		this.dictionary = o;
+		this.key_count = 0;
+		for (var p in this.dictionary)
+		{
+			if (this.dictionary.hasOwnProperty(p))
+				this.key_count++;
+		}
+	};
+	function Cnds() {};
+	Cnds.prototype.CompareValue = function (key_, cmp_, value_)
+	{
+		return cr.do_cmp(this.dictionary[key_], cmp_, value_);
+	};
+	Cnds.prototype.ForEachKey = function ()
+	{
+		var current_event = this.runtime.getCurrentEventStack().current_event;
+		for (var p in this.dictionary)
+		{
+			if (this.dictionary.hasOwnProperty(p))
+			{
+				this.cur_key = p;
+				this.runtime.pushCopySol(current_event.solModifiers);
+				current_event.retrigger();
+				this.runtime.popSol(current_event.solModifiers);
+			}
+		}
+		this.cur_key = "";
+		return false;
+	};
+	Cnds.prototype.CompareCurrentValue = function (cmp_, value_)
+	{
+		return cr.do_cmp(this.dictionary[this.cur_key], cmp_, value_);
+	};
+	Cnds.prototype.HasKey = function (key_)
+	{
+		return this.dictionary.hasOwnProperty(key_);
+	};
+	Cnds.prototype.IsEmpty = function ()
+	{
+		return this.key_count === 0;
+	};
+	pluginProto.cnds = new Cnds();
+	function Acts() {};
+	Acts.prototype.AddKey = function (key_, value_)
+	{
+		if (!this.dictionary.hasOwnProperty(key_))
+			this.key_count++;
+		this.dictionary[key_] = value_;
+	};
+	Acts.prototype.SetKey = function (key_, value_)
+	{
+		if (this.dictionary.hasOwnProperty(key_))
+			this.dictionary[key_] = value_;
+	};
+	Acts.prototype.DeleteKey = function (key_)
+	{
+		if (this.dictionary.hasOwnProperty(key_))
+		{
+			delete this.dictionary[key_];
+			this.key_count--;
+		}
+	};
+	Acts.prototype.Clear = function ()
+	{
+		cr.wipe(this.dictionary);		// avoid garbaging
+		this.key_count = 0;
+	};
+	Acts.prototype.JSONLoad = function (json_)
+	{
+		var o;
+		try {
+			o = JSON.parse(json_);
+		}
+		catch(e) { return; }
+		if (!o["c2dictionary"])		// presumably not a c2dictionary object
+			return;
+		this.dictionary = o["data"];
+		this.key_count = 0;
+		for (var p in this.dictionary)
+		{
+			if (this.dictionary.hasOwnProperty(p))
+				this.key_count++;
+		}
+	};
+	Acts.prototype.JSONDownload = function (filename)
+	{
+		var a = document.createElement("a");
+		if (typeof a.download === "undefined")
+		{
+			var str = 'data:text/html,' + encodeURIComponent("<p><a download='data.json' href=\"data:application/json,"
+				+ encodeURIComponent(JSON.stringify({
+						"c2dictionary": true,
+						"data": this.dictionary
+					}))
+				+ "\">Download link</a></p>");
+			window.open(str);
+		}
+		else
+		{
+			var body = document.getElementsByTagName("body")[0];
+			a.textContent = filename;
+			a.href = "data:application/json," + encodeURIComponent(JSON.stringify({
+						"c2dictionary": true,
+						"data": this.dictionary
+					}));
+			a.download = filename;
+			body.appendChild(a);
+			var clickEvent = document.createEvent("MouseEvent");
+			clickEvent.initMouseEvent("click", true, true, window, 0, 0, 0, 0, 0, false, false, false, false, 0, null);
+			a.dispatchEvent(clickEvent);
+			body.removeChild(a);
+		}
+	};
+	pluginProto.acts = new Acts();
+	function Exps() {};
+	Exps.prototype.Get = function (ret, key_)
+	{
+		if (this.dictionary.hasOwnProperty(key_))
+			ret.set_any(this.dictionary[key_]);
+		else
+			ret.set_int(0);
+	};
+	Exps.prototype.KeyCount = function (ret)
+	{
+		ret.set_int(this.key_count);
+	};
+	Exps.prototype.CurrentKey = function (ret)
+	{
+		ret.set_string(this.cur_key);
+	};
+	Exps.prototype.CurrentValue = function (ret)
+	{
+		if (this.dictionary.hasOwnProperty(this.cur_key))
+			ret.set_any(this.dictionary[this.cur_key]);
+		else
+			ret.set_int(0);
+	};
+	Exps.prototype.AsJSON = function (ret)
+	{
+		ret.set_string(JSON.stringify({
+			"c2dictionary": true,
+			"data": this.dictionary
+		}));
+	};
+	pluginProto.exps = new Exps();
+}());
+;
+;
 cr.plugins_.Function = function(runtime)
 {
 	this.runtime = runtime;
@@ -21331,6 +22221,2311 @@ cr.plugins_.Photon = function(runtime)
 		ret.set_int(this.appStats ? this.appStats["gameCount"] : 0);
 	};
 	pluginProto.exps = new Exps();
+}());
+;
+;
+window["Firebase"] = window["firebase"];
+window["FirebaseV3x"] = true;
+cr.plugins_.Rex_FirebaseAPIV3 = function(runtime)
+{
+	this.runtime = runtime;
+};
+(function ()
+{
+	var pluginProto = cr.plugins_.Rex_FirebaseAPIV3.prototype;
+	pluginProto.Type = function(plugin)
+	{
+		this.plugin = plugin;
+		this.runtime = plugin.runtime;
+	};
+	var typeProto = pluginProto.Type.prototype;
+	typeProto.onCreate = function()
+	{
+	};
+	pluginProto.Instance = function(type)
+	{
+		this.type = type;
+		this.runtime = type.runtime;
+	};
+	var instanceProto = pluginProto.Instance.prototype;
+	instanceProto.onCreate = function()
+	{
+        window["Firebase"]["database"]["enableLogging"](this.properties[4] === 1);
+        if (this.properties[0] !== "")
+        {
+            this.initializeApp(this.properties[0], this.properties[1], this.properties[2], this.properties[3]);
+        }
+	};
+	instanceProto.onDestroy = function ()
+	{
+	};
+	instanceProto.initializeApp = function (apiKey, authDomain, databaseURL, storageBucket)
+	{
+        var config = {
+            "apiKey": apiKey,
+            "authDomain": authDomain,
+            "databaseURL": databaseURL,
+            "storageBucket": storageBucket,
+        };
+        window["Firebase"]["initializeApp"](config);
+        runAfterInitializeHandlers();
+	};
+	var isFirebase3x = function()
+	{
+        return (window["FirebaseV3x"] === true);
+    };
+    var isFullPath = function (p)
+    {
+        return (p.substring(0,8) === "https://");
+    };
+	var getRef = function(path)
+	{
+        if (!isFirebase3x())
+        {
+            return new window["Firebase"](path);
+        }
+        else
+        {
+            var fnName = (isFullPath(path))? "refFromURL":"ref";
+            return window["Firebase"]["database"]()[fnName](path);
+        }
+	};
+	instanceProto.getRef = function(k)
+	{
+        if (k == null)
+	        k = "";
+	    var path;
+	    if (isFullPath(k))
+	        path = k;
+	    else
+	        path = this.rootpath + k + "/";
+        return getRef(path);
+	};
+    var getKey = function (obj)
+    {
+        return (!isFirebase3x())?  obj["key"]() : obj["key"];
+    };
+    var getRefPath = function (obj)
+    {
+        return (!isFirebase3x())?  obj["ref"]() : obj["ref"];
+    };
+    var getRoot = function (obj)
+    {
+        return (!isFirebase3x())?  obj["root"]() : obj["root"];
+    };
+    var serverTimeStamp = function ()
+    {
+        if (!isFirebase3x())
+            return window["Firebase"]["ServerValue"]["TIMESTAMP"];
+        else
+            return window["Firebase"]["database"]["ServerValue"];
+    };
+    var getTimestamp = function (obj)
+    {
+        return (!isFirebase3x())?  obj : obj["TIMESTAMP"];
+    };
+	function Cnds() {};
+	pluginProto.cnds = new Cnds();
+	function Acts() {};
+	pluginProto.acts = new Acts();
+	Acts.prototype.initializeApp = function (apiKey, authDomain, databaseURL, storageBucket)
+	{
+        this.initializeApp(apiKey, authDomain, databaseURL, storageBucket);
+	};
+	function Exps() {};
+	pluginProto.exps = new Exps();
+    var __afterInitialHandler = [];
+    var addAfterInitialHandler = function(callback)
+    {
+        if (__afterInitialHandler === null)
+            callback()
+        else
+            __afterInitialHandler.push(callback);
+    };
+    var runAfterInitializeHandlers = function()
+    {
+        var i, cnt=__afterInitialHandler.length;
+        for(i=0; i<cnt; i++)
+        {
+            __afterInitialHandler[i]();
+        }
+        __afterInitialHandler = null;
+    };
+	window.FirebaseAddAfterInitializeHandler = addAfterInitialHandler;
+    var ItemListKlass = function ()
+    {
+        this.updateMode = 1;                  // AUTOCHILDUPDATE
+        this.keyItemID = "__itemID__";
+        this.snapshot2Item = null;
+        this.onItemAdd = null;
+        this.onItemRemove = null;
+        this.onItemChange = null;
+        this.onItemsFetch = null;
+        this.onGetIterItem = null;
+        this.extra = {};
+        this.query = null;
+        this.items = [];
+        this.itemID2Index = {};
+        this.onAddChildCb = null;
+        this.onRemoveChildCb = null;
+        this.onChangeChildCb = null;
+        this.onItemsFetchCb = null;
+    };
+    var ItemListKlassProto = ItemListKlass.prototype;
+    ItemListKlassProto.MANUALUPDATE = 0;
+    ItemListKlassProto.AUTOCHILDUPDATE = 1;
+    ItemListKlassProto.AUTOALLUPDATE = 2;
+    ItemListKlassProto.GetItems = function ()
+    {
+        return this.items;
+    };
+    ItemListKlassProto.GetItemIndexByID = function (itemID)
+    {
+        return this.itemID2Index[itemID];
+    };
+    ItemListKlassProto.GetItemByID = function (itemID)
+    {
+        var i = this.GetItemIndexByID(itemID);
+        if (i == null)
+            return null;
+        return this.items[i];
+    };
+    ItemListKlassProto.Clean = function ()
+    {
+        this.items.length = 0;
+        cleanTable(this.itemID2Index);
+    };
+    ItemListKlassProto.StartUpdate = function (query)
+    {
+        this.StopUpdate();
+        this.Clean();
+        if (this.updateMode === this.MANUALUPDATE)
+            this.manualUpdate(query);
+        else if (this.updateMode === this.AUTOCHILDUPDATE)
+            this.startUpdateChild(query);
+        else if (this.updateMode === this.AUTOALLUPDATE)
+            this.startUpdateAll(query);
+    };
+    ItemListKlassProto.StopUpdate = function ()
+	{
+        if (this.updateMode === this.AUTOCHILDUPDATE)
+            this.stopUpdateChild();
+        else if (this.updateMode === this.AUTOALLUPDATE)
+            this.stopUpdateAll();
+	};
+	ItemListKlassProto.ForEachItem = function (runtime, start, end)
+	{
+	    if ((start == null) || (start < 0))
+	        start = 0;
+	    if ((end == null) || (end > this.items.length - 1))
+	        end = this.items.length - 1;
+        var current_frame = runtime.getCurrentEventStack();
+        var current_event = current_frame.current_event;
+		var solModifierAfterCnds = current_frame.isModifierAfterCnds();
+		var i;
+		for(i=start; i<=end; i++)
+		{
+            if (solModifierAfterCnds)
+            {
+                runtime.pushCopySol(current_event.solModifiers);
+            }
+            if (this.onGetIterItem)
+                this.onGetIterItem(this.items[i], i);
+            current_event.retrigger();
+		    if (solModifierAfterCnds)
+		    {
+		        runtime.popSol(current_event.solModifiers);
+		    }
+		}
+		return false;
+	};
+    ItemListKlassProto.addItem = function(snapshot, prevName, force_push)
+	{
+	    var item;
+	    if (this.snapshot2Item)
+	        item = this.snapshot2Item(snapshot);
+	    else
+	    {
+	        var k = getKey(snapshot);
+	        item = snapshot["val"]();
+	        item[this.keyItemID] = k;
+	    }
+        if (force_push === true)
+        {
+            this.items.push(item);
+            return;
+        }
+	    if (prevName == null)
+	    {
+            this.items.unshift(item);
+        }
+        else
+        {
+            var i = this.itemID2Index[prevName];
+            if (i == this.items.length-1)
+                this.items.push(item);
+            else
+                this.items.splice(i+1, 0, item);
+        }
+        return item;
+	};
+	ItemListKlassProto.removeItem = function(snapshot)
+	{
+	    var k = getKey(snapshot);
+	    var i = this.itemID2Index[k];
+	    var item = this.items[i];
+	    cr.arrayRemove(this.items, i);
+	    return item;
+	};
+	ItemListKlassProto.updateItemID2Index = function()
+	{
+	    cleanTable(this.itemID2Index);
+	    var i,cnt = this.items.length;
+	    for (i=0; i<cnt; i++)
+	    {
+	        this.itemID2Index[this.items[i][this.keyItemID]] = i;
+	    }
+	};
+    ItemListKlassProto.manualUpdate = function(query)
+    {
+        var self=this;
+        var onReadItem = function(childSnapshot)
+        {
+            self.addItem(childSnapshot, null, true);
+        };
+        var handler = function (snapshot)
+        {
+            snapshot["forEach"](onReadItem);
+            self.updateItemID2Index();
+            if (self.onItemsFetch)
+                self.onItemsFetch(self.items)
+        };
+        query["once"]("value", handler);
+    };
+    ItemListKlassProto.startUpdateChild = function(query)
+    {
+        var self = this;
+	    var onAddChildCb = function (newSnapshot, prevName)
+	    {
+	        var item = self.addItem(newSnapshot, prevName);
+	        self.updateItemID2Index();
+	        if (self.onItemAdd)
+	            self.onItemAdd(item);
+	    };
+	    var onRemoveChildCb = function (snapshot)
+	    {
+	        var item = self.removeItem(snapshot);
+	        self.updateItemID2Index();
+	        if (self.onItemRemove)
+	            self.onItemRemove(item);
+	    };
+	    var onChangeChildCb = function (snapshot, prevName)
+	    {
+	        var item = self.removeItem(snapshot);
+	        self.updateItemID2Index();
+	        self.addItem(snapshot, prevName);
+	        self.updateItemID2Index();
+	        if (self.onItemChange)
+	            self.onItemChange(item);
+	    };
+	    this.query = query;
+        this.onAddChildCb = onAddChildCb;
+        this.onRemoveChildCb = onRemoveChildCb;
+        this.onChangeChildCb = onChangeChildCb;
+	    query["on"]("child_added", onAddChildCb);
+	    query["on"]("child_removed", onRemoveChildCb);
+	    query["on"]("child_moved", onChangeChildCb);
+	    query["on"]("child_changed", onChangeChildCb);
+    };
+    ItemListKlassProto.stopUpdateChild = function ()
+	{
+        if (!this.query)
+            return;
+        this.query["off"]("child_added", this.onAddChildCb);
+	    this.query["off"]("child_removed", this.onRemoveChildCb);
+	    this.query["off"]("child_moved", this.onChangeChildCb);
+	    this.query["off"]("child_changed", this.onChangeChildCb);
+        this.onAddChildCb = null;
+        this.onRemoveChildCb = null;
+        this.onChangeChildCb = null;
+        this.query = null;
+	};
+    ItemListKlassProto.startUpdateAll = function(query)
+    {
+        var self=this;
+        var onReadItem = function(childSnapshot)
+        {
+            self.addItem(childSnapshot, null, true);
+        };
+        var onItemsFetchCb = function (snapshot)
+        {
+            self.Clean();
+            snapshot["forEach"](onReadItem);
+            self.updateItemID2Index();
+            if (self.onItemsFetch)
+                self.onItemsFetch(self.items)
+        };
+        this.query = query;
+        this.onItemsFetchCb = onItemsFetchCb;
+        query["on"]("value", onItemsFetchCb);
+    };
+    ItemListKlassProto.stopUpdateAll = function ()
+	{
+        if (!this.query)
+            return;
+        this.query["off"]("value", this.onItemsFetchCb);
+        this.onItemsFetchCb = null;
+        this.query = null;
+	};
+	var cleanTable = function (o)
+	{
+	    var k;
+	    for (k in o)
+	        delete o[k];
+	};
+	window.FirebaseItemListKlass = ItemListKlass;
+    var CallbackMapKlass = function ()
+    {
+        this.map = {};
+    };
+    var CallbackMapKlassProto = CallbackMapKlass.prototype;
+	CallbackMapKlassProto.Reset = function(k)
+	{
+        for (var k in this.map)
+            delete this.map[k];
+	};
+	CallbackMapKlassProto.get_callback = function(absRef, eventType, cbName)
+	{
+        if (!this.IsExisted(absRef, eventType, cbName))
+            return null;
+        return this.map[absRef][eventType][cbName];
+	};
+    CallbackMapKlassProto.IsExisted = function (absRef, eventType, cbName)
+    {
+        if (!this.map.hasOwnProperty(absRef))
+            return false;
+        if (!eventType)  // don't check event type
+            return true;
+        var eventMap = this.map[absRef];
+        if (!eventMap.hasOwnProperty(eventType))
+            return false;
+        if (!cbName)  // don't check callback name
+            return true;
+        var cbMap = eventMap[eventType];
+        if (!cbMap.hasOwnProperty(cbName))
+            return false;
+        return true;
+    };
+	CallbackMapKlassProto.Add = function(query, eventType, cbName, cb)
+	{
+	    var absRef = query["toString"]();
+        if (this.IsExisted(absRef, eventType, cbName))
+            return;
+        if (!this.map.hasOwnProperty(absRef))
+            this.map[absRef] = {};
+        var eventMap = this.map[absRef];
+        if (!eventMap.hasOwnProperty(eventType))
+            eventMap[eventType] = {};
+        var cbMap = eventMap[eventType];
+        cbMap[cbName] = cb;
+	    query["on"](eventType, cb);
+	};
+	CallbackMapKlassProto.Remove = function(absRef, eventType, cbName)
+	{
+	    if ((absRef != null) && (typeof(absRef) == "object"))
+	        absRef = absRef["toString"]();
+        if (absRef && eventType && cbName)
+        {
+            var cb = this.get_callback(absRef, eventType, cbName);
+            if (cb == null)
+                return;
+            getRef(absRef)["off"](eventType, cb);
+            delete this.map[absRef][eventType][cbName];
+        }
+        else if (absRef && eventType && !cbName)
+        {
+            var eventMap = this.map[absRef];
+            if (!eventMap)
+                return;
+            var cbMap = eventMap[eventType];
+            if (!cbMap)
+                return;
+            getRef(absRef)["off"](eventType);
+            delete this.map[absRef][eventType];
+        }
+        else if (absRef && !eventType && !cbName)
+        {
+            var eventMap = this.map[absRef];
+            if (!eventMap)
+                return;
+            getRef(absRef)["off"]();
+            delete this.map[absRef];
+        }
+        else if (!absRef && !eventType && !cbName)
+        {
+            for (var r in this.map)
+            {
+                getRef(r)["off"]();
+                delete this.map[r];
+            }
+        }
+	};
+	CallbackMapKlassProto.RemoveAllCB = function(absRef)
+	{
+	    if (absRef)
+	    {
+            var eventMap = this.map[absRef];
+            for (var e in eventMap)
+            {
+                var cbMap = eventMap[e];
+                for (var cbName in cbMap)
+                {
+                    getRef(absRef)["off"](e, cbMap[cbName]);
+                }
+            }
+            delete this.map[absRef];
+	    }
+	    else if (!absRef)
+	    {
+            for (var r in this.map)
+            {
+                var eventMap = this.map[r];
+                for (var e in eventMap)
+                {
+                    var cbMap = eventMap[e];
+                    for (var cbName in cbMap)
+                    {
+                        getRef(r)["off"](e, cbMap[cbName]);
+                    }
+                }
+                delete this.map[r];
+            }
+        }
+	};
+    CallbackMapKlassProto.getDebuggerValues = function (propsections)
+    {
+        var r, eventMap, e, cbMap, cn, display;
+        for (r in this.map)
+        {
+            eventMap = this.map[r];
+            for (e in eventMap)
+            {
+                cbMap = eventMap[e];
+                for (cn in cbMap)
+                {
+                    display = cn+":"+e+"-"+r;
+                    propsections.push({"name": display, "value": ""});
+                }
+            }
+        }
+    };
+    CallbackMapKlassProto.GetRefMap = function ()
+    {
+        return this.map;
+    };
+	window.FirebaseCallbackMapKlass = CallbackMapKlass;
+    var getValueByKeyPath = function (item, k, default_value)
+    {
+        var v;
+        if (item == null)
+            v = null;
+        else if ((k == null) || (k === ""))
+            v = item;
+        else if (typeof(item) !== "object")
+            v = null;
+        else if (k.indexOf(".") === -1)
+            v = item[k];
+        else
+        {
+            v = item;
+            var keys = k.split(".");
+            var i, cnt=keys.length;
+            for(i=0; i<cnt; i++)
+            {
+                v = v[ keys[i] ];
+                if (v == null)
+                    break;
+            }
+        }
+        return din(v, default_value);
+    }
+    var din = function (d, default_value)
+    {
+        var o;
+	    if (d === true)
+	        o = 1;
+	    else if (d === false)
+	        o = 0;
+        else if (d == null)
+        {
+            if (default_value != null)
+                o = default_value;
+            else
+                o = 0;
+        }
+        else if (typeof(d) == "object")
+            o = JSON.stringify(d);
+        else
+            o = d;
+	    return o;
+    };
+	window.FirebaseGetValueByKeyPath = getValueByKeyPath;
+}());
+;
+;
+cr.plugins_.Rex_Firebase_Authentication = function(runtime)
+{
+	this.runtime = runtime;
+};
+(function ()
+{
+	var pluginProto = cr.plugins_.Rex_Firebase_Authentication.prototype;
+	pluginProto.Type = function(plugin)
+	{
+		this.plugin = plugin;
+		this.runtime = plugin.runtime;
+	};
+	var typeProto = pluginProto.Type.prototype;
+	typeProto.onCreate = function()
+	{
+	};
+	pluginProto.Instance = function(type)
+	{
+		this.type = type;
+		this.runtime = type.runtime;
+	};
+	var instanceProto = pluginProto.Instance.prototype;
+	instanceProto.onCreate = function()
+	{
+        this.rootpath = this.properties[0];
+        this.isMyLoginCall = false;
+        this.isMyLogOutCall = false;
+        this.lastError = null;
+        this.lastAuthData = null;  // only used in 2.x
+        this.lastLoginResult = null; // only used in 3.x
+        var self=this;
+        var setupFn = function ()
+        {
+            self.setOnLogoutHandler();
+        }
+        window.FirebaseAddAfterInitializeHandler(setupFn);
+        window.FirebaseGetCurrentUserID = function()
+        {
+            return self.getCurrentUserID();
+        };
+	};
+	var isFirebase3x = function()
+	{
+        return (window["FirebaseV3x"] === true);
+    };
+	instanceProto.get_ref = function(k)
+	{
+        if (k == null)
+	        k = "";
+	    var path;
+	    if (k.substring(0,8) == "https://")
+	        path = k;
+	    else
+	        path = this.rootpath + k + "/";
+        return new window["Firebase"](path);
+	};
+    var getAuthObj = function()
+    {
+        return window["Firebase"]["auth"]();
+    };
+	instanceProto.setOnLogoutHandler = function()
+	{
+        var self = this;
+        var onAuthStateChanged = function (authData)
+        {
+            if (authData)
+            {
+                var isMyLoginCall = self.isMyLoginCall && !self.isMyLogOutCall;
+                self.lastError = null;
+                self.lastAuthData = authData;
+                if (!isMyLoginCall)
+                    self.runtime.trigger(cr.plugins_.Rex_Firebase_Authentication.prototype.cnds.OnLoginByOther, self);
+                else
+                {
+                    self.isMyLoginCall = false;
+                    self.runtime.trigger(cr.plugins_.Rex_Firebase_Authentication.prototype.cnds.OnLoginSuccessful, self);
+                }
+            }
+            else
+            {
+                var isMyLogOutCall = self.isMyLogOutCall;
+                self.isMyLogOutCall = false;
+                self.lastAuthData = null;
+                self.lastLoginResult = null;
+                if (!isMyLogOutCall)
+                    self.runtime.trigger(cr.plugins_.Rex_Firebase_Authentication.prototype.cnds.OnLoggedOutByOther, self);
+                else
+                    self.runtime.trigger(cr.plugins_.Rex_Firebase_Authentication.prototype.cnds.OnLoggedOut, self);
+            }
+        };
+        if (!isFirebase3x())
+        {
+            this.lastAuthData  = this.get_ref()["getAuth"]();
+            this.get_ref()["onAuth"](onAuthStateChanged);
+        }
+        else
+        {
+            getAuthObj()["onAuthStateChanged"](onAuthStateChanged);
+        }
+	};
+    instanceProto.getCurrentUserID = function()
+    {
+        var uid;
+        if (!isFirebase3x())
+            uid = (this.lastAuthData)? this.lastAuthData["uid"]:"";
+        else
+            uid = getUserProperty3x("uid");
+        return uid;
+    }
+	function Cnds() {};
+	pluginProto.cnds = new Cnds();
+	Cnds.prototype.EmailPassword_OnCreateAccountSuccessful = function ()
+	{
+	    return true;
+	};
+	Cnds.prototype.EmailPassword_OnCreateAccountError = function ()
+	{
+	    return true;
+	};
+	Cnds.prototype.EmailPassword_OnChangingPasswordSuccessful = function ()
+	{
+	    return true;
+	};
+	Cnds.prototype.EmailPassword_OnChangingPasswordError = function ()
+	{
+	    return true;
+	};
+	Cnds.prototype.EmailPassword_OnSendPasswordResetEmailSuccessful = function ()
+	{
+	    return true;
+	};
+	Cnds.prototype.EmailPassword_OnSendPasswordResetEmailError = function ()
+	{
+	    return true;
+	};
+	Cnds.prototype.EmailPassword_OnDeleteUserSuccessful = function ()
+	{
+	    return true;
+	};
+	Cnds.prototype.EmailPassword_OnDeleteUserError = function ()
+	{
+	    return true;
+	};
+	Cnds.prototype.EmailPassword_OnUpdatingProfileSuccessful = function ()
+	{
+	    return true;
+	};
+	Cnds.prototype.EmailPassword_OnUpdatingProfileError = function ()
+	{
+	    return true;
+	};
+	Cnds.prototype.EmailPassword_OnUpdatingEmailSuccessful = function ()
+	{
+	    return true;
+	};
+	Cnds.prototype.EmailPassword_OnUpdatingEmailError = function ()
+	{
+	    return true;
+	};
+	Cnds.prototype.EmailPassword_OnSendVerificationEmailSuccessful = function ()
+	{
+	    return true;
+	};
+	Cnds.prototype.EmailPassword_OnSendVerificationEmailError = function ()
+	{
+	    return true;
+	};
+	Cnds.prototype.IsAnonymous = function ()
+	{
+        var val;
+        if (!isFirebase3x())
+        {
+            var user = this.lastAuthData;
+            if (user)
+                val = (user["provider"] === "anonymous");
+            else
+                val = false;
+        }
+        else
+        {
+            var user = getAuthObj()["currentUser"];
+            val = user && user["isAnonymous"];
+        }
+        return val;
+	};
+	Cnds.prototype.OnLoginSuccessful = function ()
+	{
+	    return true;
+	};
+	Cnds.prototype.OnLoginError = function ()
+	{
+	    return true;
+	};
+	Cnds.prototype.OnLoggedOut = function ()
+	{
+	    return true;
+	};
+	Cnds.prototype.IsLogin = function ()
+	{
+        if (!isFirebase3x())
+            return (this.lastAuthData != null);
+        else
+            return (getAuthObj()["currentUser"] != null);
+	};
+	Cnds.prototype.OnLoginByOther = function ()
+	{
+	    return true;
+	};
+	Cnds.prototype.OnLoggedOutByOther = function ()
+	{
+	    return true;
+	};
+	Cnds.prototype.OnLinkSuccessful = function ()
+	{
+	    return true;
+	};
+	Cnds.prototype.OnLinkError = function ()
+	{
+	    return true;
+	};
+	function Acts() {};
+	pluginProto.acts = new Acts();
+	var getHandler2x = function(self, successTrig, errorTrig)
+	{
+	    var handler = function(error, authData)
+        {
+            self.lastError = error;
+            self.lastAuthData = authData;
+            if (error == null)
+            {
+                self.runtime.trigger(successTrig, self);
+            }
+            else
+            {
+                self.runtime.trigger(errorTrig, self);
+            }
+        };
+        return handler;
+    };
+	var getLoginHandler2x = function(self)
+	{
+	    var handler = function(error, authData)
+        {
+            self.lastError = error;
+            self.lastAuthData = authData;
+            if (error == null)
+            {
+                self.runtime.trigger(cr.plugins_.Rex_Firebase_Authentication.prototype.cnds.OnLoginSuccessful, self);
+            }
+            else
+            {
+                self.isMyLoginCall = false;
+                self.runtime.trigger(cr.plugins_.Rex_Firebase_Authentication.prototype.cnds.OnLoginError, self);
+            }
+        };
+        self.isMyLoginCall = true;
+        return handler;
+    };
+    var addHandler = function (self, authObj, successTrig, errorTrig)
+    {
+        var onSuccess = function (result)
+        {
+            self.lastError = null;
+            self.lastAuthData = result;
+            if (successTrig)
+                self.runtime.trigger(successTrig, self);
+        };
+        var onError = function (error)
+        {
+            self.lastError = error;
+            self.lastAuthData = null;
+            if (errorTrig)
+                self.runtime.trigger(errorTrig, self);
+        };
+        authObj["then"](onSuccess)["catch"](onError);
+    };
+    var addLoginHandler = function (self, authObj)
+    {
+        var onSuccess = function (result)
+        {
+            self.lastLoginResult = result;
+        };
+        var onError = function (error)
+        {
+            self.isMyLoginCall = false;
+            self.lastError = error;
+            self.lastLoginResult = null;
+            self.runtime.trigger(cr.plugins_.Rex_Firebase_Authentication.prototype.cnds.OnLoginError, self);
+        };
+        self.isMyLoginCall = true;
+        authObj["then"](onSuccess)["catch"](onError);
+    }
+    Acts.prototype.EmailPassword_CreateAccount = function (e_, p_)
+	{
+        if (!isFirebase3x())
+        {
+	        var reg_data = {"email":e_,  "password":p_ };
+	        var handler = getHandler2x(this,
+	                                     cr.plugins_.Rex_Firebase_Authentication.prototype.cnds.EmailPassword_OnCreateAccountSuccessful,
+	                                     cr.plugins_.Rex_Firebase_Authentication.prototype.cnds.EmailPassword_OnCreateAccountError);
+	        this.get_ref()["createUser"](reg_data, handler);
+        }
+        else
+        {
+            var authObj = getAuthObj()["createUserWithEmailAndPassword"](e_, p_);
+            addHandler(this, authObj,
+                              cr.plugins_.Rex_Firebase_Authentication.prototype.cnds.EmailPassword_OnCreateAccountSuccessful,
+                              cr.plugins_.Rex_Firebase_Authentication.prototype.cnds.EmailPassword_OnCreateAccountError
+                              );
+        }
+	};
+    var PRESISTING_TYPE = ["default", "sessionOnly", "never"];
+    Acts.prototype.EmailPassword_Login = function (e_, p_, r_)
+	{
+        if (!isFirebase3x())
+        {
+	        var reg_data = {"email":e_,  "password":p_ };
+	        var handler = getLoginHandler2x(this);
+            var d = {"remember":PRESISTING_TYPE[r_]};
+	        this.get_ref()["authWithPassword"](reg_data, handler, d);
+        }
+        else
+        {
+            var authObj = getAuthObj();
+            addLoginHandler(this, authObj["signInWithEmailAndPassword"](e_, p_));
+        }
+	};
+    Acts.prototype.EmailPassword_ChangePassword = function (e_, old_p_, new_p_)
+	{
+        if (!isFirebase3x())
+        {
+	        var reg_data = {"email":e_,  "oldPassword ":old_p_,  "newPassword":new_p_};
+	        var handler = getHandler2x(this,
+	                                     cr.plugins_.Rex_Firebase_Authentication.prototype.cnds.EmailPassword_OnChangingPasswordSuccessful,
+	                                     cr.plugins_.Rex_Firebase_Authentication.prototype.cnds.EmailPassword_OnChangingPasswordError);
+	        this.get_ref()["changePassword"](reg_data, handler);
+        }
+        else
+        {
+            var authObj = getAuthObj()["currentUser"]["updatePassword"](new_p_);
+            addHandler(this, authObj,
+                              cr.plugins_.Rex_Firebase_Authentication.prototype.cnds.EmailPassword_OnChangingPasswordSuccessful,
+                              cr.plugins_.Rex_Firebase_Authentication.prototype.cnds.EmailPassword_OnChangingPasswordError
+                              );
+        }
+	};
+    Acts.prototype.EmailPassword_SendPasswordResetEmail = function (e_)
+	{
+        if (!isFirebase3x())
+        {
+	        var reg_data = {"email":e_};
+	        var handler = getHandler2x(this,
+	                                     cr.plugins_.Rex_Firebase_Authentication.prototype.cnds.EmailPassword_OnSendPasswordResetEmailSuccessful,
+	                                     cr.plugins_.Rex_Firebase_Authentication.prototype.cnds.EmailPassword_OnSendPasswordResetEmailError);
+	        this.get_ref()["resetPassword"](reg_data, handler);
+        }
+        else
+        {
+            var authObj = getAuthObj()["sendPasswordResetEmail"](e_);
+            addHandler(this, authObj,
+                              cr.plugins_.Rex_Firebase_Authentication.prototype.cnds.EmailPassword_OnSendPasswordResetEmailSuccessful,
+                              cr.plugins_.Rex_Firebase_Authentication.prototype.cnds.EmailPassword_OnSendPasswordResetEmailError
+                              );
+        }
+	};
+    Acts.prototype.EmailPassword_DeleteUser = function (e_, p_)
+	{
+        if (!isFirebase3x())
+        {
+	        var reg_data = {"email":e_,  "password":p_};
+	        var handler = getHandler2x(this,
+	                                     cr.plugins_.Rex_Firebase_Authentication.prototype.cnds.EmailPassword_OnDeleteUserSuccessful,
+	                                     cr.plugins_.Rex_Firebase_Authentication.prototype.cnds.EmailPassword_OnDeleteUserError);
+	        this.get_ref()["removeUser"](reg_data, handler);
+        }
+        else
+        {
+            var authObj = getAuthObj()["currentUser"]["delete"]();
+            addHandler(this, authObj,
+                              cr.plugins_.Rex_Firebase_Authentication.prototype.cnds.EmailPassword_OnDeleteUserSuccessful,
+                              cr.plugins_.Rex_Firebase_Authentication.prototype.cnds.EmailPassword_OnDeleteUserError
+                              );
+        }
+	};
+    Acts.prototype.Anonymous_Login = function (r_)
+	{
+        if (!isFirebase3x())
+        {
+	        var handler = getLoginHandler2x(this);
+            var d = {"remember":PRESISTING_TYPE[r_]};
+	        this.get_ref()["authAnonymously"](handler, d);
+        }
+        else
+        {
+            var authObj = getAuthObj();
+            addLoginHandler(this, authObj["signInAnonymously"]());
+        }
+	};
+    Acts.prototype.AuthenticationToken_Login = function (t_, r_)
+	{
+        if (!isFirebase3x())
+        {
+	        var handler = getLoginHandler2x(this);
+            var d = {"remember":PRESISTING_TYPE[r_]};
+	        this.get_ref()["authWithCustomToken"](t_, handler, d);
+        }
+        else
+        {
+            var authObj = getAuthObj();
+            addLoginHandler(this, authObj["signInWithCustomToken"]());
+        }
+	};
+	var PROVIDER_TYPE2x = ["facebook", "twitter", "github", "google"];
+    var capitalizeFirstLetter = function (s)
+    {
+        return s.charAt(0).toUpperCase() + s.slice(1);
+    };
+    Acts.prototype.ProviderAuthentication_Login = function (provider, t_, r_, scope_)
+	{
+        if (!isFirebase3x())
+        {
+            if (typeof(provider) === "number")
+                provider = PROVIDER_TYPE2x[provider];
+            var loginType = (t_ === 0)? "authWithOAuthPopup":"authWithOAuthRedirect";
+	        var handler = getLoginHandler2x(this);
+            var d = {"remember":PRESISTING_TYPE[r_],
+                     "scope":scope_};
+	        this.get_ref()[loginType](provider, handler, d);
+        }
+        else
+        {
+            if (typeof(provider) === "number")
+                provider = PROVIDER_TYPE2x[provider];
+            provider = capitalizeFirstLetter( provider) + "AuthProvider";
+            var providerObj = new window["Firebase"]["auth"][provider]();
+            if (scope_ !== "")
+                providerObj["addScope"](scope_);
+            var authObj = getAuthObj();
+            if (t_ === 0)    // signInWithPopup
+            {
+                addLoginHandler(this, authObj["signInWithPopup"](providerObj));
+            }
+            else    // signInWithRedirect
+            {
+                authObj["signInWithRedirect"](providerObj);
+                addLoginHandler(this, authObj["getRedirectResult"]());
+            }
+        }
+	};
+    Acts.prototype.AuthWithOAuthToken_FB = function (access_token, r_, scope_)
+	{
+        if (access_token == "")
+        {
+	        if (typeof (FB) == null)
+	         return;
+	         var auth_response = FB["getAuthResponse"]();
+	         if (!auth_response)
+	             return;
+	        access_token = auth_response["accessToken"];
+        }
+        if (!isFirebase3x())
+        {
+	        var handler = getLoginHandler2x(this);
+            var d = {"remember":PRESISTING_TYPE[r_],
+                     "scope":scope_};
+            this.get_ref()["authWithOAuthToken"]("facebook", access_token, handler, d);
+        }
+        else
+        {
+            var credential = window["Firebase"]["auth"]["FacebookAuthProvider"]["credential"](access_token);
+            var authObj = getAuthObj();
+            addLoginHandler(this, authObj["signInWithCredential"](credential));
+        }
+	};
+    Acts.prototype.LoggingOut = function ()
+	{
+        this.isMyLogOutCall = true;
+        if (!isFirebase3x())
+        {
+	        this.get_ref()["unauth"]();
+        }
+        else
+        {
+            var authObj = getAuthObj()["signOut"]();
+        }
+	};
+    Acts.prototype.GoOffline = function ()
+	{
+        if (!isFirebase3x())
+        {
+	        window["Firebase"]["goOffline"]();
+        }
+        else
+        {
+            window["Firebase"]["database"]()["goOffline"]();
+        }
+	};
+    Acts.prototype.GoOnline = function ()
+	{
+        if (!isFirebase3x())
+        {
+	        window["Firebase"]["goOnline"]();
+        }
+        else
+        {
+            window["Firebase"]["database"]()["goOnline"]();
+        }
+	};
+    Acts.prototype.LinkToFB = function (access_token)
+	{
+        if (!isFirebase3x())
+        {
+            alert("Does not support in firebase 2.x api");
+	        return;
+        }
+        var user = getAuthObj()["currentUser"];
+        if (user == null)
+        {
+            return;
+        }
+        if (access_token == "")
+        {
+	        if (typeof (FB) == null)
+	            return;
+	        var auth_response = FB["getAuthResponse"]();
+	        if (!auth_response)
+	            return;
+	        access_token = auth_response["accessToken"];
+        }
+        var credential = window["Firebase"]["auth"]["FacebookAuthProvider"]["credential"](access_token);
+        var authObj = user["link"](credential);
+        addHandler(this, authObj,
+                          cr.plugins_.Rex_Firebase_Authentication.prototype.cnds.OnLinkSuccessful,
+                          cr.plugins_.Rex_Firebase_Authentication.prototype.cnds.OnLinkError
+                          );
+	};
+    Acts.prototype.LinkToGoogle = function (id_token)
+	{
+        if (!isFirebase3x())
+        {
+            alert("Does not support in firebase 2.x api");
+	        return;
+        }
+        var user = getAuthObj()["currentUser"];
+        if (user == null)
+        {
+            return;
+        }
+        var credential = window["Firebase"]["auth"]["GoogleAuthProvider"]["credential"](id_token);
+        var authObj = user["link"](credential);
+        addHandler(this, authObj,
+                          cr.plugins_.Rex_Firebase_Authentication.prototype.cnds.OnLinkSuccessful,
+                          cr.plugins_.Rex_Firebase_Authentication.prototype.cnds.OnLinkError
+                          );
+	};
+    Acts.prototype.LinkToEmailPassword = function (e_, p_)
+	{
+        if (!isFirebase3x())
+        {
+            alert("Does not support in firebase 2.x api");
+	        return;
+        }
+        var user = getAuthObj()["currentUser"];
+        if (user == null)
+        {
+            return;
+        }
+        var credential = window["Firebase"]["auth"]["EmailAuthProvider"]["credential"](e_, p_);
+        var authObj = user["link"](credential);
+        addHandler(this, authObj,
+                          cr.plugins_.Rex_Firebase_Authentication.prototype.cnds.OnLinkSuccessful,
+                          cr.plugins_.Rex_Firebase_Authentication.prototype.cnds.OnLinkError
+                          );
+	};
+    Acts.prototype.UpdateProfile = function (displayName, photoURL)
+	{
+        if (!isFirebase3x())
+        {
+            alert("Does not support in firebase 2.x api");
+	        return;
+        }
+        else
+        {
+            var self = this;
+            var user = getAuthObj()["currentUser"];
+            var data = {
+                "displayName": displayName,
+                "photoURL": photoURL,
+            }
+            var onSuccess = function ()
+            {
+                self.runtime.trigger(cr.plugins_.Rex_Firebase_Authentication.prototype.cnds.EmailPassword_OnUpdatingProfileSuccessful, self);
+            };
+            var onError = function ()
+            {
+                self.runtime.trigger(cr.plugins_.Rex_Firebase_Authentication.prototype.cnds.EmailPassword_OnUpdatingProfileError, self);
+            };
+            user["updateProfile"](data)["then"](onSuccess)["catch"](onError);
+        }
+	};
+    Acts.prototype.UpdateEmail = function (email)
+	{
+        if (!isFirebase3x())
+        {
+            alert("Does not support in firebase 2.x api");
+	        return;
+        }
+        else
+        {
+            var self = this;
+            var user = getAuthObj()["currentUser"];
+            var onSuccess = function ()
+            {
+                self.runtime.trigger(cr.plugins_.Rex_Firebase_Authentication.prototype.cnds.EmailPassword_OnUpdatingEmailSuccessful, self);
+            };
+            var onError = function ()
+            {
+                self.runtime.trigger(cr.plugins_.Rex_Firebase_Authentication.prototype.cnds.EmailPassword_OnUpdatingEmailError, self);
+            };
+            user["updateEmail"](email)["then"](onSuccess)["catch"](onError);
+        }
+	};
+    Acts.prototype.SendEmailVerification = function (email)
+	{
+        if (!isFirebase3x())
+        {
+            alert("Does not support in firebase 2.x api");
+	        return;
+        }
+        else
+        {
+            var self = this;
+            var user = getAuthObj()["currentUser"];
+            var onSuccess = function ()
+            {
+                self.runtime.trigger(cr.plugins_.Rex_Firebase_Authentication.prototype.cnds.EmailPassword_OnSendVerificationEmailSuccessful, self);
+            };
+            var onError = function ()
+            {
+                self.runtime.trigger(cr.plugins_.Rex_Firebase_Authentication.prototype.cnds.EmailPassword_OnSendVerificationEmailError, self);
+            };
+            user["sendEmailVerification"]()["then"](onSuccess)["catch"](onError);
+        }
+	};
+	function Exps() {};
+	pluginProto.exps = new Exps();
+    var getProviderProperty = function (authData, p)
+    {
+		if (authData == null)
+		    return "";
+		var provide_type = authData["provider"];
+		var provider_info = authData[provide_type];
+		if (provider_info == null)
+		    return "";
+		var val = provider_info[p];
+		if (val == null)
+		    val = "";
+        return val;
+    };
+    var getUserProperty3x = function(p)
+    {
+        var user = getAuthObj()["currentUser"];
+        return (user)? user[p]:"";
+    };
+    var getProviderProperty3x = function (p, idx)
+    {
+		var user = getAuthObj()["currentUser"];
+        if (!user)
+            return "";
+        if (idx == null) idx = 0;
+        var providerData = user["providerData"][idx];
+        var val = (providerData)? providerData[p]:"";
+        return val;
+    };
+	Exps.prototype.ErrorCode = function (ret)
+	{
+	    var val = (!this.lastError)? "": this.lastError["code"];
+		ret.set_string(val || "");
+	};
+	Exps.prototype.ErrorMessage = function (ret)
+	{
+	    var val = (!this.lastError)? "": this.lastError["message"];
+		ret.set_string(val || "");
+	};
+	Exps.prototype.UserID = function (ret)
+	{
+		ret.set_string(this.getCurrentUserID() || "");
+	};
+	Exps.prototype.Provider = function (ret)
+	{
+        var pid;
+        if (!isFirebase3x())
+        {
+            pid = (!this.lastAuthData)? "": this.lastAuthData["provider"];
+        }
+        else
+        {
+            pid = getProviderProperty3x("providerId");
+        }
+		ret.set_string(pid);
+	};
+	Exps.prototype.DisplayName = function (ret)
+	{
+        var name;
+        if (!isFirebase3x())
+        {
+            name = getProviderProperty(this.lastAuthData, "displayName");
+        }
+        else
+        {
+            name = getUserProperty3x("displayName");
+        }
+		ret.set_string(name || "");
+	};
+	Exps.prototype.UserIDFromProvider = function (ret)
+	{
+        var uid;
+        if (!isFirebase3x())
+        {
+            uid = getProviderProperty(this.lastAuthData, "id");
+        }
+        else
+        {
+            uid = getProviderProperty3x("uid");
+        }
+		ret.set_string(uid || "");
+	};
+	Exps.prototype.AccessToken = function (ret)
+	{
+        var token;
+        if (!isFirebase3x())
+        {
+            token = getProviderProperty(this.lastAuthData, "accessToken");
+        }
+        else
+        {
+            if (this.lastLoginResult && this.lastLoginResult["credential"])
+                token = this.lastLoginResult["credential"]["accessToken"];
+        }
+		ret.set_string(token || "");
+	};
+	Exps.prototype.CachedUserProfile = function (ret)
+	{
+        var profile;
+        if (!isFirebase3x())
+        {
+            profile = getProviderProperty(this.lastAuthData, "cachedUserProfile");
+        }
+        else
+        {
+            alert("CachedUserProfile had not implemented in firebase 3.x");
+        }
+        ret.set_string( profile || "" );
+	};
+	Exps.prototype.Email = function (ret)
+	{
+        var email;
+        if ((!isFirebase3x()))
+        {
+            email = getProviderProperty(this.lastAuthData, "email");
+        }
+        else
+        {
+            email = getProviderProperty3x("email");
+        }
+		ret.set_string(email || "");
+	};
+	Exps.prototype.UserName = function (ret)
+	{
+        var name;
+        if (!isFirebase3x())
+        {
+            name = getProviderProperty(this.lastAuthData, "username");
+        }
+        else
+        {
+            name = getUserProperty3x("displayName");
+        }
+		ret.set_string(name || "");
+	};
+	Exps.prototype.ErrorDetail = function (ret)
+	{
+	    var val = (!this.lastError)? "": this.lastError["detail"];
+        if (val == null)
+            val = "";
+		ret.set_string(val);
+	};
+	Exps.prototype.PhotoURL = function (ret)
+	{
+        var photoUrl;
+        if (!isFirebase3x())
+        {
+            photoUrl = "";
+        }
+        else
+        {
+            photoUrl = getProviderProperty3x("photoURL");
+        }
+		ret.set_string(photoUrl || "");
+	};
+}());
+/*
+<itemID>\
+    <Key> : <value>
+*/
+;
+;
+cr.plugins_.Rex_Firebase_ItemTable = function(runtime)
+{
+	this.runtime = runtime;
+};
+(function ()
+{
+	var pluginProto = cr.plugins_.Rex_Firebase_ItemTable.prototype;
+	pluginProto.Type = function(plugin)
+	{
+		this.plugin = plugin;
+		this.runtime = plugin.runtime;
+	};
+	var typeProto = pluginProto.Type.prototype;
+	typeProto.onCreate = function()
+	{
+	};
+	pluginProto.Instance = function(type)
+	{
+		this.type = type;
+		this.runtime = type.runtime;
+	};
+	var instanceProto = pluginProto.Instance.prototype;
+	instanceProto.onCreate = function()
+	{
+	    this.rootpath = this.properties[0] + "/" + this.properties[1] + "/";
+        this.save_item = {};
+	    if (!this.recycled)
+	    {
+            this.disconnectRemove_absRefs = {};
+            this.load_request_itemIDs = {};
+            this.load_items = {};
+            this.load_items_cnt = null;
+        }
+        else
+        {
+            clean_table( this.disconnectRemove_absRefs );
+            clean_table( this.load_request_itemIDs );
+            this.clean_load_items();
+        }
+        this.trig_tag = null;
+        this.exp_CurItemID = "";
+        this.exp_CurItemContent = null;
+        this.exp_CurKey = "";
+        this.exp_CurValue = 0;
+        this.exp_LastItemID = "";
+        this.exp_LastGeneratedKey = "";
+	};
+	instanceProto.onDestroy = function ()
+	{
+	    this.CancelOnDisconnected();
+        this.save_item = {};
+        clean_table( this.disconnectRemove_absRefs );
+        clean_table( this.load_request_itemIDs );
+        this.clean_load_items();
+	};
+	instanceProto.clean_load_items = function ()
+	{
+        clean_table( this.load_items );
+        this.load_items_cnt = null;
+	};
+	var isFirebase3x = function()
+	{
+        return (window["FirebaseV3x"] === true);
+    };
+    var isFullPath = function (p)
+    {
+        return (p.substring(0,8) === "https://");
+    };
+	instanceProto.get_ref = function(k)
+	{
+        if (k == null)
+	        k = "";
+	    var path;
+	    if (isFullPath(k))
+	        path = k;
+	    else
+	        path = this.rootpath + k + "/";
+        if (!isFirebase3x())
+        {
+            return new window["Firebase"](path);
+        }
+        else
+        {
+            var fnName = (isFullPath(path))? "refFromURL":"ref";
+            return window["Firebase"]["database"]()[fnName](path);
+        }
+	};
+    var get_key = function (obj)
+    {
+        return (!isFirebase3x())?  obj["key"]() : obj["key"];
+    };
+    var get_refPath = function (obj)
+    {
+        return (!isFirebase3x())?  obj["ref"]() : obj["ref"];
+    };
+    var get_root = function (obj)
+    {
+        return (!isFirebase3x())?  obj["root"]() : obj["root"];
+    };
+    var serverTimeStamp = function ()
+    {
+        if (!isFirebase3x())
+            return window["Firebase"]["ServerValue"]["TIMESTAMP"];
+        else
+            return window["Firebase"]["database"]["ServerValue"];
+    };
+    var get_timestamp = function (obj)
+    {
+        return (!isFirebase3x())?  obj : obj["TIMESTAMP"];
+    };
+	instanceProto.ForEachItemID = function (itemIDList, items)
+	{
+        var current_frame = this.runtime.getCurrentEventStack();
+        var current_event = current_frame.current_event;
+		var solModifierAfterCnds = current_frame.isModifierAfterCnds();
+		var i, cnt=itemIDList.length;
+		for(i=0; i<cnt; i++)
+		{
+            if (solModifierAfterCnds)
+            {
+                this.runtime.pushCopySol(current_event.solModifiers);
+            }
+            this.exp_CurItemID = itemIDList[i];
+            this.exp_CurItemContent = items[this.exp_CurItemID];
+            current_event.retrigger();
+		    if (solModifierAfterCnds)
+		    {
+		        this.runtime.popSol(current_event.solModifiers);
+		    }
+		}
+		return false;
+	};
+    instanceProto.Save = function (itemID, save_item, set_mode, tag_)
+	{
+	    if (itemID === "")
+	    {
+	        var ref = this.get_ref()["push"]();
+	   	    itemID = get_key(ref);
+	    }
+	    else
+	    {
+	        var ref = this.get_ref(itemID);
+	    }
+	    var self = this;
+	    var on_save = function (error)
+	    {
+		    var trig = (!error)? cr.plugins_.Rex_Firebase_ItemTable.prototype.cnds.OnSaveComplete:
+		                         cr.plugins_.Rex_Firebase_ItemTable.prototype.cnds.OnSaveError;
+            self.trig_tag = tag_;
+            self.exp_CurItemID = itemID;
+		    self.runtime.trigger(trig, self);
+		    self.trig_tag = null;
+		    self.exp_CurItemID = "";
+	    };
+	    this.exp_LastItemID = itemID;
+	    var is_empty = is_empty_table(save_item);
+	    var save_data = (is_empty)? true: save_item;
+	    var op = (set_mode == 1)? "set":"update";
+	    ref[op](save_data, on_save);
+	};
+    instanceProto.Remove = function (itemID, tag_)
+	{
+	    var self = this;
+	    var on_remove = function (error)
+	    {
+		    var trig = (!error)? cr.plugins_.Rex_Firebase_ItemTable.prototype.cnds.OnRemoveComplete:
+		                         cr.plugins_.Rex_Firebase_ItemTable.prototype.cnds.OnRemoveError;
+            self.trig_tag = tag_;
+            self.exp_CurItemID = itemID;
+		    self.runtime.trigger(trig, self);
+		    self.trig_tag = null;
+		    self.exp_CurItemID = "";
+	    };
+	    this.get_ref(itemID)["remove"](on_remove);
+	};
+    instanceProto.At = function (itemID, key_, default_value)
+	{
+	    var v;
+        if (!this.load_items.hasOwnProperty(itemID))
+            v = null;
+        else
+            v = this.load_items[itemID][key_];
+        v = din(v, default_value);
+		return v;
+	};
+    instanceProto.CancelOnDisconnected = function ()
+	{
+	    for(var r in this.disconnectRemove_absRefs)
+	    {
+	        this.get_ref(r)["onDisconnect"]()["cancel"]();
+	        delete this.disconnectRemove_absRefs[r];
+	    }
+	};
+    var getFullKey = function (prefix, itemID, key)
+    {
+        var k = prefix;
+        if (itemID != null)
+            k +=  "/" + itemID;
+        if (key != null)
+        {
+            key = key.replace(/\./g, "/");
+            k += "/" + key;
+        }
+        return k;
+    }
+	var clean_table = function (o)
+	{
+		for (var k in o)
+		    delete o[k];
+	};
+	var is_empty_table = function (o)
+	{
+		for (var k in o)
+		    return false;
+		return true;
+	};
+    var din = function (d, default_value)
+    {
+        var o;
+	    if (d === true)
+	        o = 1;
+	    else if (d === false)
+	        o = 0;
+        else if (d == null)
+        {
+            if (default_value != null)
+                o = default_value;
+            else
+                o = 0;
+        }
+        else if (typeof(d) == "object")
+            o = JSON.stringify(d);
+        else
+            o = d;
+	    return o;
+    };
+    var dout = function (d)
+    {
+        var o;
+        if (typeof(d) == "string")
+        {
+            try
+            {
+	            o = JSON.parse(d)
+            }
+            catch(err)
+            {
+                o = d;
+            }
+        }
+        else
+        {
+            o = d;
+        }
+        return o;
+    };
+	function Cnds() {};
+	pluginProto.cnds = new Cnds();
+	Cnds.prototype.OnSaveComplete = function (tag_)
+	{
+	    return cr.equals_nocase(tag_, this.trig_tag);
+	};
+	Cnds.prototype.OnSaveError = function (tag_)
+	{
+	    return cr.equals_nocase(tag_, this.trig_tag);
+	};
+	Cnds.prototype.OnRemoveComplete = function (tag_)
+	{
+	    return cr.equals_nocase(tag_, this.trig_tag);
+	};
+	Cnds.prototype.OnRemoveError = function (tag_)
+	{
+	    return cr.equals_nocase(tag_, this.trig_tag);
+	};
+	Cnds.prototype.OnLoadComplete = function (tag_)
+	{
+	    return cr.equals_nocase(tag_, this.trig_tag);
+	};
+    var inc = function(a, b)
+    {
+        return (a > b)?  1:
+               (a == b)? 0:
+                         (-1);
+    };
+    var dec = function(a, b)
+    {
+        return (a < b)?  1:
+               (a == b)? 0:
+                         (-1);
+    };
+	Cnds.prototype.ForEachItemID = function (order)
+	{
+	    var itemIDList = Object.keys(this.load_items);
+	    var sort_fn = (order === 0)? inc:dec;
+	    itemIDList.sort(sort_fn);
+	    return this.ForEachItemID(itemIDList, this.load_items);
+	};
+	Cnds.prototype.ForEachKey = function (itemID)
+	{
+	    var item_props = this.load_items[itemID];
+	    if (item_props == null)
+	        return false;
+        var current_frame = this.runtime.getCurrentEventStack();
+        var current_event = current_frame.current_event;
+		var solModifierAfterCnds = current_frame.isModifierAfterCnds();
+		var k, o=item_props;
+		for(k in o)
+		{
+            if (solModifierAfterCnds)
+            {
+                this.runtime.pushCopySol(current_event.solModifiers);
+            }
+            this.exp_CurKey = k;
+            this.exp_CurValue = o[k];
+            current_event.retrigger();
+		    if (solModifierAfterCnds)
+		    {
+		        this.runtime.popSol(current_event.solModifiers);
+		    }
+		}
+		return false;
+	};
+	Cnds.prototype.OnCleanAllComplete = function ()
+	{
+	    return true;
+	};
+	Cnds.prototype.OnCleanAllError = function ()
+	{
+	    return true;
+	};
+	function Acts() {};
+	pluginProto.acts = new Acts();
+    Acts.prototype.SetDomainRef = function (domain_ref, sub_domain_ref)
+	{
+		this.rootpath = domain_ref + "/" + sub_domain_ref + "/";
+		this.clean_load_items();
+	};
+    Acts.prototype.SetValue = function (key_, value_)
+	{
+		this.save_item[key_] = dout(value_);
+	};
+    Acts.prototype.SetBooleanValue = function (key_, is_true)
+	{
+		this.save_item[key_] = (is_true == 1);
+	};
+    Acts.prototype.RemoveKey = function (key_)
+	{
+		this.save_item[key_] = null;
+	};
+    Acts.prototype.Save = function (itemID, set_mode, tag_)
+	{
+	    this.Save(itemID, this.save_item, set_mode, tag_);
+        this.save_item = {};
+	};
+    Acts.prototype.Push = function (tag_)
+	{
+	    this.Save("", this.save_item, 1, tag_);
+        this.save_item = {};
+	};
+    Acts.prototype.Remove = function (itemID, tag_)
+	{
+	    this.Remove(itemID, tag_);
+	};
+    Acts.prototype.GenerateKey = function ()
+	{
+	    var ref = this.get_ref()["push"]();
+        this.exp_LastGeneratedKey = get_key(ref);
+	};
+    Acts.prototype.SetPosValue = function (x, y)
+	{
+		this.save_item["pos"] = {"x":x, "y":y};
+	};
+    Acts.prototype.SetServerTimestampValue = function (key_)
+	{
+		this.save_item[key_] = serverTimeStamp();
+	};
+    Acts.prototype.AddLoadRequestItemID = function (itemID)
+	{
+	    if (itemID == "")
+	        return;
+		this.load_request_itemIDs[itemID] = true;
+	};
+    Acts.prototype.LoadItems = function (tag_)
+	{
+	    this.clean_load_items();
+        var self = this;
+        var wait_events = 0;
+	    var isDone_handler = function()
+	    {
+	        wait_events -= 1;
+	        if (wait_events == 0)
+	        {
+                self.trig_tag = tag_;
+                var trig = cr.plugins_.Rex_Firebase_ItemTable.prototype.cnds.OnLoadComplete;
+				self.runtime.trigger(trig, self);
+				self.trig_tag = null;
+	        }
+	    };
+	    var on_read = function (snapshot)
+	    {
+	        var itemID = get_key(snapshot);
+	        var content = snapshot["val"]();
+	        self.load_items[itemID] = content;
+	        isDone_handler();
+	    };
+        var itemID, item_ref;
+		for(itemID in this.load_request_itemIDs)
+		{
+		    wait_events += 1;
+		    item_ref = this.get_ref(itemID)["once"]("value", on_read);
+		    delete this.load_request_itemIDs[itemID];
+		}
+	};
+    Acts.prototype.LoadAllItems = function (tag_)
+	{
+	    clean_table(this.load_items);
+        var self = this;
+        var wait_events = 0;
+	    var isDone_handler = function()
+	    {
+	        wait_events -= 1;
+	        if (wait_events == 0)
+	        {
+                self.trig_tag = tag_;
+                var trig = cr.plugins_.Rex_Firebase_ItemTable.prototype.cnds.OnLoadComplete;
+				self.runtime.trigger(trig, self);
+				self.trig_tag = null;
+	        }
+	    };
+        var read_item = function(childSnapshot)
+        {
+            var key = get_key(childSnapshot);
+            var childData = childSnapshot["val"]();
+            self.load_items[key] = childData;
+        };
+	    var on_read = function (snapshot)
+	    {
+            snapshot["forEach"](read_item);
+            isDone_handler();
+	    };
+        wait_events += 1;
+        this.get_ref()["once"]("value", on_read);
+	};
+    Acts.prototype.CancelOnDisconnected = function ()
+	{
+	    this.CancelOnDisconnected();
+	};
+    Acts.prototype.RemoveOnDisconnected = function (itemID)
+	{
+	    if (itemID == "")
+	        return;
+        var ref = this.get_ref(itemID);
+        ref["onDisconnect"]()["remove"]();
+	    this.disconnectRemove_absRefs[ref["toString"]()] = true;
+	};
+    Acts.prototype.CleanAll = function ()
+	{
+        var self=this;
+        var onComplete = function(error)
+        {
+	        var trig = (!error)? cr.plugins_.Rex_Firebase_ItemTable.prototype.cnds.OnCleanAllComplete:
+	                                    cr.plugins_.Rex_Firebase_ItemTable.prototype.cnds.OnCleanAllError;
+	        self.runtime.trigger(trig, self);
+        };
+	    var ref = this.get_ref();
+        ref["remove"](onComplete);
+	};
+	function Exps() {};
+	pluginProto.exps = new Exps();
+    Exps.prototype.CurItemID = function (ret)
+	{
+		ret.set_string(this.exp_CurItemID);
+	};
+	Exps.prototype.LoadResultToJSON = function (ret)
+	{
+		ret.set_string(JSON.stringify(this.load_items));
+	};
+    Exps.prototype.CurKey = function (ret)
+	{
+		ret.set_string(this.exp_CurKey);
+	};
+    Exps.prototype.CurValue = function (ret)
+	{
+	    var v = this.exp_CurValue;
+	    v = din(v);
+		ret.set_any(v);
+	};
+    Exps.prototype.At = function (ret, itemID, key_, default_value)
+	{
+	    var v;
+        if (!this.load_items.hasOwnProperty(itemID))
+            v = null;
+        else
+            v = this.load_items[itemID][key_];
+        v = din(v, default_value);
+		ret.set_any(v);
+	};
+	Exps.prototype.LastItemID = function (ret)
+	{
+		ret.set_string(this.exp_LastItemID);
+	};
+    Exps.prototype.CurItemContent = function (ret, key_, default_value)
+	{
+	    var v;
+        if (key_ == null)
+            v = din(this.exp_CurItemContent);
+        else
+            v = din(this.exp_CurItemContent[key_], default_value);
+		ret.set_any(v);
+	};
+	Exps.prototype.ItemsCount = function (ret)
+	{
+        if (this.load_items_cnt === null)
+        {
+            this.load_items_cnt = 0;
+            for (var k in this.load_items)
+                this.load_items_cnt += 1;
+        }
+		ret.set_int(this.load_items_cnt);
+	};
+	Exps.prototype.GenerateKey = function (ret)
+	{
+	    var ref = this.get_ref()["push"]();
+        this.exp_LastGeneratedKey = get_key(ref);
+		ret.set_string(this.exp_LastGeneratedKey);
+	};
+	Exps.prototype.LastGeneratedKey = function (ret)
+	{
+	    ret.set_string(this.exp_LastGeneratedKey);
+	};
+    Exps.prototype.Ref = function (ret, itemID_, key_)
+	{
+        var path = this.rootpath + getFullKey("", itemID_, key_);
+		ret.set_string(path);
+	};
+}());
+/*
+<UserID>
+    name - user name
+	score - score
+	extra - extra data like photo
+	updateAt - timestamp of last score updating
+*/
+;
+;
+cr.plugins_.Rex_Firebase_Leaderboard = function(runtime)
+{
+	this.runtime = runtime;
+};
+(function ()
+{
+	var pluginProto = cr.plugins_.Rex_Firebase_Leaderboard.prototype;
+	pluginProto.Type = function(plugin)
+	{
+		this.plugin = plugin;
+		this.runtime = plugin.runtime;
+	};
+	var typeProto = pluginProto.Type.prototype;
+	typeProto.onCreate = function()
+	{
+	};
+	pluginProto.Instance = function(type)
+	{
+		this.type = type;
+		this.runtime = type.runtime;
+	};
+	var instanceProto = pluginProto.Instance.prototype;
+	instanceProto.onCreate = function()
+	{
+	    this.rootpath = this.properties[0] + "/" + this.properties[1] + "/";
+		this.ranking_order = this.properties[2];
+	    this.ranks = this.create_ranks(this.properties[3]==1);
+	    this.exp_CurRankCol = null;
+	    this.exp_CurPlayerRank = -1;
+	    this.exp_PostPlayerName = "";
+        this.exp_PostPlayerScore = 0;
+        this.exp_PostPlayerUserID = "";
+        this.exp_PostExtraData = "";
+		this.exp_LastUserID = "";
+		this.exp_LastScore = 0;
+		this.exp_LastPlayerName = "";
+	};
+	instanceProto.onDestroy = function ()
+	{
+	    this.ranks.StopUpdate();
+	};
+	var isFirebase3x = function()
+	{
+        return (window["FirebaseV3x"] === true);
+    };
+    var isFullPath = function (p)
+    {
+        return (p.substring(0,8) === "https://");
+    };
+	instanceProto.get_ref = function(k)
+	{
+        if (k == null)
+	        k = "";
+	    var path;
+	    if (isFullPath(k))
+	        path = k;
+	    else
+	        path = this.rootpath + k + "/";
+        if (!isFirebase3x())
+        {
+            return new window["Firebase"](path);
+        }
+        else
+        {
+            var fnName = (isFullPath(path))? "refFromURL":"ref";
+            return window["Firebase"]["database"]()[fnName](path);
+        }
+	};
+    var get_key = function (obj)
+    {
+        return (!isFirebase3x())?  obj["key"]() : obj["key"];
+    };
+    var get_root = function (obj)
+    {
+        return (!isFirebase3x())?  obj["root"]() : obj["root"];
+    };
+    var serverTimeStamp = function ()
+    {
+        if (!isFirebase3x())
+            return window["Firebase"]["ServerValue"]["TIMESTAMP"];
+        else
+            return window["Firebase"]["database"]["ServerValue"];
+    };
+    var get_timestamp = function (obj)
+    {
+        return (!isFirebase3x())?  obj : obj["TIMESTAMP"];
+    };
+	instanceProto.create_ranks = function(isAutoUpdate)
+	{
+	    var ranks = new window.FirebaseItemListKlass();
+	    ranks.updateMode = (isAutoUpdate)? ranks.AUTOCHILDUPDATE : ranks.MANUALUPDATE;
+	    ranks.keyItemID = "userID";
+	    var self = this;
+	    var on_update = function()
+	    {
+	        self.runtime.trigger(cr.plugins_.Rex_Firebase_Leaderboard.prototype.cnds.OnUpdate, self);
+	    };
+	    ranks.onItemsFetch = on_update;
+        ranks.onItemAdd = on_update;
+        ranks.onItemRemove = on_update;
+        ranks.onItemChange = on_update;
+	    var onGetIterItem = function(item, i)
+	    {
+	        self.exp_CurRankCol = item;
+	        self.exp_CurPlayerRank = i;
+	    };
+	    ranks.onGetIterItem = onGetIterItem;
+        return ranks;
+    };
+    instanceProto.update_ranks = function (count)
+	{
+	    var query = this.get_ref();
+		if (count == -1)  // update all
+		{
+		}
+		else
+		{
+		    query = query["orderByPriority"]()["limitToFirst"](count);
+		}
+		this.ranks.StartUpdate(query);
+	};
+    var get_extraData = function (extra_data)
+    {
+        var save_extra_data;
+        if (extra_data == "")
+        {
+            save_extra_data = null;
+        }
+        else
+        {
+            try
+            {
+	            save_extra_data = JSON.parse(extra_data)
+            }
+            catch(err)
+            {
+                save_extra_data = extra_data;
+            }
+        }
+        return save_extra_data;
+    }
+    instanceProto.post_score = function (userID, name, score, extra_data)
+	{
+        extra_data = get_extraData(extra_data);
+	    var self = this;
+	    var onComplete = function(error)
+	    {
+            self.onPostComplete.call(self, error, userID, name, score, extra_data);
+        };
+        var save_data = {"name":name,
+                         "score":score,
+                         "extra": extra_data,
+                         "updateAt": serverTimeStamp()
+                        };
+        var priority = (this.ranking_order == 0)? score:-score;
+        var ref = this.get_ref();
+	    ref["child"](userID)["setWithPriority"](save_data, priority, onComplete);
+	};
+	instanceProto.onPostComplete = function(error, userID, name, score, extra_data)
+	{
+	    this.exp_PostPlayerName = name;
+        this.exp_PostPlayerScore = score;
+        this.exp_PostPlayerUserID = userID;
+        this.exp_PostExtraData = extra_data;
+	    var trig = (error)? cr.plugins_.Rex_Firebase_Leaderboard.prototype.cnds.OnPostError:
+	                        cr.plugins_.Rex_Firebase_Leaderboard.prototype.cnds.OnPostComplete;
+	    this.runtime.trigger(trig, this);
+    };
+	function Cnds() {};
+	pluginProto.cnds = new Cnds();
+	Cnds.prototype.OnPostComplete = function ()
+	{
+	    return true;
+	};
+	Cnds.prototype.OnPostError = function ()
+	{
+	    return true;
+	};
+	Cnds.prototype.OnUpdate = function ()
+	{
+	    return true;
+	};
+	Cnds.prototype.ForEachRank = function (start, end)
+	{
+		return this.ranks.ForEachItem(this.runtime, start, end);
+	};
+	Cnds.prototype.OnGetScore = function ()
+	{
+	    return true;
+	};
+	function Acts() {};
+	pluginProto.acts = new Acts();
+    Acts.prototype.SetDomainRef = function (ref, ID_)
+	{
+	    this.ranks.StopUpdate();
+	    this.rootpath = ref + "/" + ID_ + "/";
+	};
+    Acts.prototype.PostScore = function (userID, name, score, extra_data, post_cond)
+	{
+        if (post_cond !== 0)
+        {
+            var self=this;
+            var onReadScore = function(snapshot)
+            {
+                var preScore = snapshot["val"]();
+                var doPosting;
+                if (post_cond === 1)
+                    doPosting = (score > preScore);
+                else if (post_cond === 2)
+                    doPosting = (score < preScore);
+                else if (post_cond === 3)
+                    doPosting = (preScore == null) ;
+                if (doPosting)
+                    self.post_score(userID, name, score, extra_data);
+                else
+                {
+                    self.onPostComplete.call(self, false, userID, name, preScore, extra_data);
+                }
+            };
+            var ref = this.get_ref()["child"](userID)["child"]("score");
+	        ref["once"]("value", onReadScore)
+        }
+        else
+        {
+            this.post_score(userID, name, score, extra_data);
+        }
+	};
+    Acts.prototype.UpdateAllRanks = function ()
+	{
+	    this.update_ranks(-1);
+	};
+    Acts.prototype.UpdateTopRanks = function (count)
+	{
+	    this.update_ranks(count);
+	};
+    Acts.prototype.RemovePost = function (userID)
+	{
+	    var ref = this.get_ref();
+	    ref["child"](userID)["remove"]();
+	};
+    Acts.prototype.StopUpdating = function ()
+	{
+        this.ranks.StopUpdate();
+	};
+    Acts.prototype.AddScore = function (userID, name, scoreAddTo, extra_data)
+	{
+        extra_data = get_extraData(extra_data);
+	    var self = this;
+	    var on_complete = function(error, committed, snapshot)
+	    {
+            var val = snapshot["val"]();
+            self.onPostComplete.call(self, error, userID, name, val["score"], extra_data);
+        };
+        var on_transaction = function (currentValue)
+        {
+            var old_score = (currentValue == null)? 0: currentValue["score"];
+            var new_score = old_score + scoreAddTo;
+            var save_data = {"name":name,
+                                       "score":new_score,
+                                       "extra": extra_data,
+                                       "updateAt": serverTimeStamp()
+                                      };
+            var priority = (self.ranking_order == 0)? new_score:-new_score;
+            return { '.value': save_data, '.priority': priority };
+        };
+        var ref = this.get_ref();
+	    ref["child"](userID)["transaction"](on_transaction, on_complete);
+	};
+    Acts.prototype.GetScore = function (userID)
+	{
+        var self=this;
+        var onReadUserID = function(snapshot)
+        {
+			var userData = snapshot["val"]();
+            if (userData)
+			{
+				self.exp_LastUserID = userID;
+				self.exp_LastScore = userData["score"];
+				self.exp_LastPlayerName = userData["name"];
+			}
+			else
+			{
+				self.exp_LastUserID = "";
+				self.exp_LastScore = 0;
+				self.exp_LastPlayerName = "";
+			}
+            self.runtime.trigger(cr.plugins_.Rex_Firebase_Leaderboard.prototype.cnds.OnGetScore, self);
+        };
+		var ref = this.get_ref()["child"](userID);
+		ref["once"]("value", onReadUserID);
+	};
+	function Exps() {};
+	pluginProto.exps = new Exps();
+	Exps.prototype.CurPlayerName = function (ret)
+	{
+	    var name;
+	    if (this.exp_CurRankCol != null)
+	        name = this.exp_CurRankCol["name"];
+	    else
+	        name = "";
+		ret.set_string(name);
+	};
+	Exps.prototype.CurPlayerScore = function (ret)
+	{
+	    var score;
+	    if (this.exp_CurRankCol != null)
+	        score = this.exp_CurRankCol["score"];
+	    else
+	        score = 0;
+		ret.set_any(score);
+	};
+	Exps.prototype.CurPlayerRank = function (ret)
+	{
+		ret.set_int(this.exp_CurPlayerRank);
+	};
+	Exps.prototype.CurUserID = function (ret)
+	{
+	    var userID;
+	    if (this.exp_CurRankCol != null)
+	        userID = this.exp_CurRankCol["userID"];
+	    else
+	        userID = "";
+		ret.set_string(this.exp_CurRankCol["userID"]);
+	};
+	Exps.prototype.CurExtraData = function (ret)
+	{
+	    var extra_data = this.exp_CurRankCol["extra"];
+	    if (extra_data == null)
+	    {
+	        extra_data = "";
+	    }
+	    else if (typeof(extra_data) == "object")
+	    {
+	        extra_data = JSON.stringify(extra_data);
+	        this.exp_CurRankCol["extra"] = extra_data;
+	    }
+		ret.set_any(extra_data);
+	};
+	Exps.prototype.PostPlayerName = function (ret)
+	{
+		ret.set_string(this.exp_PostPlayerName);
+	};
+	Exps.prototype.PostPlayerScore = function (ret)
+	{
+		ret.set_any(this.exp_PostPlayerScore);
+	};
+	Exps.prototype.PostPlayerUserID = function (ret)
+	{
+		ret.set_string(this.exp_PostPlayerUserID);
+	};
+	Exps.prototype.PostExtraData = function (ret)
+	{
+		ret.set_any(this.exp_PostExtraData);
+	};
+	Exps.prototype.RankCount = function (ret)
+	{
+		ret.set_int(this.ranks.GetItems().length);
+	};
+	Exps.prototype.UserID2Rank = function (ret, userID)
+	{
+	    var rank = this.ranks.GetItemIndexByID(userID);
+	    if (rank == null)
+	        rank = -1;
+		ret.set_int(rank);
+	};
+	Exps.prototype.Rank2PlayerName = function (ret, i)
+	{
+	    var rank_info = this.ranks.GetItems()[i];
+	    var name = (!rank_info)? "":rank_info["name"];
+		ret.set_string(name);
+	};
+	Exps.prototype.Rank2PlayerScore = function (ret, i)
+	{
+	    var rank_info = this.ranks.GetItems()[i];
+	    var score = (!rank_info)? "":rank_info["score"];
+		ret.set_any(score);
+	};
+	Exps.prototype.Rank2ExtraData = function (ret, i)
+	{
+	    var rank_info = this.ranks.GetItems()[i];
+	    var extra_data = (!rank_info)? "":rank_info["extra"];
+		ret.set_any(extra_data);
+	};
+	Exps.prototype.Rank2PlayerUserID = function (ret, i)
+	{
+	    var rank_info = this.ranks.GetItems()[i];
+	    var extra_data = (!rank_info)? "":rank_info["userID"];
+		ret.set_any(extra_data);
+	};
+	Exps.prototype.LastUserID = function (ret)
+	{
+		ret.set_string(this.exp_LastUserID);
+	};
+	Exps.prototype.LastScore = function (ret)
+	{
+		ret.set_any(this.exp_LastScore);
+	};
+	Exps.prototype.LastPlayerName = function (ret)
+	{
+		ret.set_any(this.exp_LastPlayerName);
+	};
 }());
 ;
 ;
@@ -26358,6 +29553,268 @@ cr.plugins_.Touch = function(runtime)
 }());
 ;
 ;
+cr.plugins_.WebStorage = function(runtime)
+{
+	this.runtime = runtime;
+};
+(function()
+{
+	var pluginProto = cr.plugins_.WebStorage.prototype;
+	pluginProto.Type = function(plugin)
+	{
+		this.plugin = plugin;
+		this.runtime = plugin.runtime;
+	};
+	var typeProto = pluginProto.Type.prototype;
+	typeProto.onCreate = function()
+	{
+	};
+	pluginProto.Instance = function(type)
+	{
+		this.type = type;
+		this.runtime = type.runtime;
+	};
+	var instanceProto = pluginProto.Instance.prototype;
+	var prefix = "";
+	var is_arcade = (typeof window["is_scirra_arcade"] !== "undefined");
+	if (is_arcade)
+		prefix = "arcade" + window["scirra_arcade_id"];
+	var isSupported = false;
+	try {
+		localStorage.getItem("test");
+		isSupported = true;
+	}
+	catch (e)
+	{
+		isSupported = false;
+	}
+	instanceProto.onCreate = function()
+	{
+		if (!isSupported)
+		{
+			cr.logexport("[Construct 2] Webstorage plugin: local storage is not supported on this platform.");
+		}
+	};
+	function Cnds() {};
+	Cnds.prototype.LocalStorageEnabled = function()
+	{
+		return isSupported;
+	};
+	Cnds.prototype.SessionStorageEnabled = function()
+	{
+		return isSupported;
+	};
+	Cnds.prototype.LocalStorageExists = function(key)
+	{
+		if (!isSupported)
+			return false;
+		return localStorage.getItem(prefix + key) != null;
+	};
+	Cnds.prototype.SessionStorageExists = function(key)
+	{
+		if (!isSupported)
+			return false;
+		return sessionStorage.getItem(prefix + key) != null;
+	};
+	Cnds.prototype.OnQuotaExceeded = function ()
+	{
+		return true;
+	};
+	Cnds.prototype.CompareKeyText = function (key, text_to_compare, case_sensitive)
+	{
+		if (!isSupported)
+			return false;
+		var value = localStorage.getItem(prefix + key) || "";
+		if (case_sensitive)
+			return value == text_to_compare;
+		else
+			return cr.equals_nocase(value, text_to_compare);
+	};
+	Cnds.prototype.CompareKeyNumber = function (key, cmp, x)
+	{
+		if (!isSupported)
+			return false;
+		var value = localStorage.getItem(prefix + key) || "";
+		return cr.do_cmp(parseFloat(value), cmp, x);
+	};
+	pluginProto.cnds = new Cnds();
+	function Acts() {};
+	Acts.prototype.StoreLocal = function(key, data)
+	{
+		if (!isSupported)
+			return;
+		try {
+			localStorage.setItem(prefix + key, data);
+		}
+		catch (e)
+		{
+			this.runtime.trigger(cr.plugins_.WebStorage.prototype.cnds.OnQuotaExceeded, this);
+		}
+	};
+	Acts.prototype.StoreSession = function(key,data)
+	{
+		if (!isSupported)
+			return;
+		try {
+			sessionStorage.setItem(prefix + key, data);
+		}
+		catch (e)
+		{
+			this.runtime.trigger(cr.plugins_.WebStorage.prototype.cnds.OnQuotaExceeded, this);
+		}
+	};
+	Acts.prototype.RemoveLocal = function(key)
+	{
+		if (!isSupported)
+			return;
+		localStorage.removeItem(prefix + key);
+	};
+	Acts.prototype.RemoveSession = function(key)
+	{
+		if (!isSupported)
+			return;
+		sessionStorage.removeItem(prefix + key);
+	};
+	Acts.prototype.ClearLocal = function()
+	{
+		if (!isSupported)
+			return;
+		if (!is_arcade)
+			localStorage.clear();
+	};
+	Acts.prototype.ClearSession = function()
+	{
+		if (!isSupported)
+			return;
+		if (!is_arcade)
+			sessionStorage.clear();
+	};
+	Acts.prototype.JSONLoad = function (json_, mode_)
+	{
+		if (!isSupported)
+			return;
+		var d;
+		try {
+			d = JSON.parse(json_);
+		}
+		catch(e) { return; }
+		if (!d["c2dictionary"])			// presumably not a c2dictionary object
+			return;
+		var o = d["data"];
+		if (mode_ === 0 && !is_arcade)	// 'set' mode: must clear webstorage first
+			localStorage.clear();
+		var p;
+		for (p in o)
+		{
+			if (o.hasOwnProperty(p))
+			{
+				try {
+					localStorage.setItem(prefix + p, o[p]);
+				}
+				catch (e)
+				{
+					this.runtime.trigger(cr.plugins_.WebStorage.prototype.cnds.OnQuotaExceeded, this);
+					return;
+				}
+			}
+		}
+	};
+	pluginProto.acts = new Acts();
+	function Exps() {};
+	Exps.prototype.LocalValue = function(ret,key)
+	{
+		if (!isSupported)
+		{
+			ret.set_string("");
+			return;
+		}
+		ret.set_string(localStorage.getItem(prefix + key) || "");
+	};
+	Exps.prototype.SessionValue = function(ret,key)
+	{
+		if (!isSupported)
+		{
+			ret.set_string("");
+			return;
+		}
+		ret.set_string(sessionStorage.getItem(prefix + key) || "");
+	};
+	Exps.prototype.LocalCount = function(ret)
+	{
+		if (!isSupported)
+		{
+			ret.set_int(0);
+			return;
+		}
+		ret.set_int(is_arcade ? 0 : localStorage.length);
+	};
+	Exps.prototype.SessionCount = function(ret)
+	{
+		if (!isSupported)
+		{
+			ret.set_int(0);
+			return;
+		}
+		ret.set_int(is_arcade ? 0 : sessionStorage.length);
+	};
+	Exps.prototype.LocalAt = function(ret,n)
+	{
+		if (is_arcade || !isSupported)
+			ret.set_string("");
+		else
+			ret.set_string(localStorage.getItem(localStorage.key(n)) || "");
+	};
+	Exps.prototype.SessionAt = function(ret,n)
+	{
+		if (is_arcade || !isSupported)
+			ret.set_string("");
+		else
+			ret.set_string(sessionStorage.getItem(sessionStorage.key(n)) || "");
+	};
+	Exps.prototype.LocalKeyAt = function(ret,n)
+	{
+		if (is_arcade || !isSupported)
+			ret.set_string("");
+		else
+			ret.set_string(localStorage.key(n) || "");
+	};
+	Exps.prototype.SessionKeyAt = function(ret,n)
+	{
+		if (is_arcade || !isSupported)
+			ret.set_string("");
+		else
+			ret.set_string(sessionStorage.key(n) || "");
+	};
+	Exps.prototype.AsJSON = function (ret)
+	{
+		if (!isSupported)
+		{
+			ret.set_string("");
+			return;
+		}
+		var o = {}, i, len, k;
+		for (i = 0, len = localStorage.length; i < len; i++)
+		{
+			k = localStorage.key(i);
+			if (is_arcade)
+			{
+				if (k.substr(0, prefix.length) === prefix)
+				{
+					o[k.substr(prefix.length)] = localStorage.getItem(k);
+				}
+			}
+			else
+				o[k] = localStorage.getItem(k);
+		}
+		ret.set_string(JSON.stringify({
+			"c2dictionary": true,
+			"data": o
+		}));
+	};
+	pluginProto.exps = new Exps();
+}());
+;
+;
 cr.plugins_.sirg_notifications = function(runtime)
 {
 	this.runtime = runtime;
@@ -26906,6 +30363,243 @@ cr.behaviors.Bullet = function(runtime)
 	Exps.prototype.Gravity = function (ret)
 	{
 		ret.set_float(this.g);
+	};
+	behaviorProto.exps = new Exps();
+}());
+;
+;
+cr.behaviors.LOS = function(runtime)
+{
+	this.runtime = runtime;
+};
+(function ()
+{
+	var behaviorProto = cr.behaviors.LOS.prototype;
+	behaviorProto.Type = function(behavior, objtype)
+	{
+		this.behavior = behavior;
+		this.objtype = objtype;
+		this.runtime = behavior.runtime;
+	};
+	var behtypeProto = behaviorProto.Type.prototype;
+	behtypeProto.onCreate = function()
+	{
+		this.obstacleTypes = [];						// object types to check for as obstructions
+	};
+	behtypeProto.findLosBehavior = function (inst)
+	{
+		var i, len, b;
+		for (i = 0, len = inst.behavior_insts.length; i < len; ++i)
+		{
+			b = inst.behavior_insts[i];
+			if (b instanceof cr.behaviors.LOS.prototype.Instance && b.type === this)
+				return b;
+		}
+		return null;
+	};
+	behaviorProto.Instance = function(type, inst)
+	{
+		this.type = type;
+		this.behavior = type.behavior;
+		this.inst = inst;				// associated object instance to modify
+		this.runtime = type.runtime;
+	};
+	var behinstProto = behaviorProto.Instance.prototype;
+	behinstProto.onCreate = function()
+	{
+		this.obstacleMode = this.properties[0];		// 0 = solids, 1 = custom
+		this.range = this.properties[1];
+		this.cone = cr.to_radians(this.properties[2]);
+		this.useCollisionCells = (this.properties[3] !== 0);
+	};
+	behinstProto.onDestroy = function ()
+	{
+	};
+	behinstProto.saveToJSON = function ()
+	{
+		var o = {
+			"r": this.range,
+			"c": this.cone,
+			"t": []
+		};
+		var i, len;
+		for (i = 0, len = this.type.obstacleTypes.length; i < len; i++)
+		{
+			o["t"].push(this.type.obstacleTypes[i].sid);
+		}
+		return o;
+	};
+	behinstProto.loadFromJSON = function (o)
+	{
+		this.range = o["r"];
+		this.cone = o["c"];
+		cr.clearArray(this.type.obstacleTypes);
+		var i, len, t;
+		for (i = 0, len = o["t"].length; i < len; i++)
+		{
+			t = this.runtime.getObjectTypeBySid(o["t"][i]);
+			if (t)
+				this.type.obstacleTypes.push(t);
+		}
+	};
+	behinstProto.tick = function ()
+	{
+	};
+	var candidates = [];
+	var tmpRect = new cr.rect(0, 0, 0, 0);
+	behinstProto.hasLOSto = function (x_, y_)
+	{
+		var startx = this.inst.x;
+		var starty = this.inst.y;
+		var myangle = this.inst.angle;
+		if (this.inst.width < 0)
+			myangle += Math.PI;
+		if (cr.distanceTo(startx, starty, x_, y_) > this.range)
+			return false;		// too far away
+		var a = cr.angleTo(startx, starty, x_, y_);
+		if (cr.angleDiff(myangle, a) > this.cone / 2)
+			return false;		// outside cone of view
+		var i, leni, rinst, solid;
+		tmpRect.set(startx, starty, x_, y_);
+		tmpRect.normalize();
+		if (this.obstacleMode === 0)
+		{
+			if (this.useCollisionCells)
+			{
+				this.runtime.getSolidCollisionCandidates(this.inst.layer, tmpRect, candidates);
+			}
+			else
+			{
+				solid = this.runtime.getSolidBehavior();
+				if (solid)
+					cr.appendArray(candidates, solid.my_instances.valuesRef());
+			}
+			for (i = 0, leni = candidates.length; i < leni; ++i)
+			{
+				rinst = candidates[i];
+				if (!rinst.extra["solidEnabled"] || rinst === this.inst)
+					continue;
+				if (this.runtime.testSegmentOverlap(startx, starty, x_, y_, rinst))
+				{
+					cr.clearArray(candidates);
+					return false;
+				}
+			}
+		}
+		else
+		{
+			if (this.useCollisionCells)
+			{
+				this.runtime.getTypesCollisionCandidates(this.inst.layer, this.type.obstacleTypes, tmpRect, candidates);
+			}
+			else
+			{
+				for (i = 0, leni = this.type.obstacleTypes.length; i < leni; ++i)
+				{
+					cr.appendArray(candidates, this.type.obstacleTypes[i].instances);
+				}
+			}
+			for (i = 0, leni = candidates.length; i < leni; ++i)
+			{
+				rinst = candidates[i];
+				if (rinst === this.inst)
+					continue;
+				if (this.runtime.testSegmentOverlap(startx, starty, x_, y_, rinst))
+				{
+					cr.clearArray(candidates);
+					return false;
+				}
+			}
+		}
+		cr.clearArray(candidates);
+		return true;
+	};
+	function Cnds() {};
+	var ltopick = new cr.ObjectSet();
+	var rtopick = new cr.ObjectSet();
+	Cnds.prototype.HasLOSToObject = function (obj_)
+	{
+		if (!obj_)
+			return false;
+		var i, j, leni, lenj, linst, losbeh, rinst, pick;
+		var lsol = this.runtime.getCurrentConditionObjectType().getCurrentSol();
+		var rsol = obj_.getCurrentSol();
+		var linstances = lsol.getObjects();
+		var rinstances = rsol.getObjects();
+		if (lsol.select_all)
+			cr.clearArray(lsol.else_instances);
+		if (rsol.select_all)
+			cr.clearArray(rsol.else_instances);
+		var inverted = this.runtime.getCurrentCondition().inverted;
+		for (i = 0, leni = linstances.length; i < leni; ++i)
+		{
+			linst = linstances[i];
+			pick = false;
+			losbeh = this.findLosBehavior(linst);
+;
+			for (j = 0, lenj = rinstances.length; j < lenj; ++j)
+			{
+				rinst = rinstances[j];
+				if (linst !== rinst && cr.xor(losbeh.hasLOSto(rinst.x, rinst.y), inverted))
+				{
+					pick = true;
+					rtopick.add(rinst);
+				}
+			}
+			if (pick)
+				ltopick.add(linst);
+		}
+		var lpicks = ltopick.valuesRef();
+		var rpicks = rtopick.valuesRef();
+		lsol.select_all = false;
+		rsol.select_all = false;
+		cr.shallowAssignArray(lsol.instances, lpicks);
+		cr.shallowAssignArray(rsol.instances, rpicks);
+		ltopick.clear();
+		rtopick.clear();
+		return lsol.hasObjects();
+	};
+	Cnds.prototype.HasLOSToPosition = function (x_, y_)
+	{
+		return this.hasLOSto(x_, y_);
+	};
+	behaviorProto.cnds = new Cnds();
+	function Acts() {};
+	Acts.prototype.SetRange = function (r)
+	{
+		this.range = r;
+	};
+	Acts.prototype.SetCone = function (c)
+	{
+		this.cone = cr.to_radians(c);
+	};
+	Acts.prototype.AddObstacle = function (obj_)
+	{
+		var obstacleTypes = this.type.obstacleTypes;
+		if (obstacleTypes.indexOf(obj_) !== -1)
+			return;
+		var i, len, t;
+		for (i = 0, len = obstacleTypes.length; i < len; i++)
+		{
+			t = obstacleTypes[i];
+			if (t.is_family && t.members.indexOf(obj_) !== -1)
+				return;
+		}
+		obstacleTypes.push(obj_);
+	};
+	Acts.prototype.ClearObstacles = function ()
+	{
+		cr.clearArray(this.type.obstacleTypes);
+	};
+	behaviorProto.acts = new Acts();
+	function Exps() {};
+	Exps.prototype.Range = function (ret)
+	{
+		ret.set_float(this.range);
+	};
+	Exps.prototype.ConeOfView = function (ret)
+	{
+		ret.set_float(cr.to_degrees(this.cone));
 	};
 	behaviorProto.exps = new Exps();
 }());
@@ -28850,20 +32544,27 @@ cr.behaviors.solid = function(runtime)
 }());
 cr.getObjectRefTable = function () { return [
 	cr.plugins_.AJAX,
+	cr.plugins_.Arr,
 	cr.plugins_.Audio,
 	cr.plugins_.Browser,
-	cr.plugins_.Function,
+	cr.plugins_.Dictionary,
 	cr.plugins_.Particles,
+	cr.plugins_.Function,
 	cr.plugins_.Mouse,
-	cr.plugins_.Keyboard,
 	cr.plugins_.Photon,
+	cr.plugins_.Keyboard,
+	cr.plugins_.Rex_Firebase_Authentication,
+	cr.plugins_.Rex_Firebase_Leaderboard,
+	cr.plugins_.Rex_FirebaseAPIV3,
+	cr.plugins_.Rex_Firebase_ItemTable,
+	cr.plugins_.sirg_notifications,
 	cr.plugins_.Sprite,
-	cr.plugins_.Text,
+	cr.plugins_.Touch,
+	cr.plugins_.Tilemap,
+	cr.plugins_.WebStorage,
 	cr.plugins_.TextBox,
 	cr.plugins_.TiledBg,
-	cr.plugins_.Touch,
-	cr.plugins_.sirg_notifications,
-	cr.plugins_.Tilemap,
+	cr.plugins_.Text,
 	cr.behaviors.Platform,
 	cr.behaviors.scrollto,
 	cr.behaviors.Rex_MoveTo,
@@ -28872,6 +32573,12 @@ cr.getObjectRefTable = function () { return [
 	cr.behaviors.Bullet,
 	cr.behaviors.Sin,
 	cr.behaviors.solid,
+	cr.behaviors.LOS,
+	cr.system_object.prototype.cnds.OnLayoutStart,
+	cr.system_object.prototype.acts.SetLayerVisible,
+	cr.system_object.prototype.cnds.CompareVar,
+	cr.system_object.prototype.acts.SetVar,
+	cr.plugins_.WebStorage.prototype.exps.LocalValue,
 	cr.system_object.prototype.cnds.EveryTick,
 	cr.system_object.prototype.acts.SetLayerScale,
 	cr.plugins_.Text.prototype.acts.SetWebFont,
@@ -28884,7 +32591,6 @@ cr.getObjectRefTable = function () { return [
 	cr.plugins_.Photon.prototype.exps.ActorCount,
 	cr.system_object.prototype.exps.fps,
 	cr.system_object.prototype.cnds.IsGroupActive,
-	cr.system_object.prototype.cnds.OnLayoutStart,
 	cr.plugins_.Audio.prototype.cnds.IsTagPlaying,
 	cr.plugins_.Audio.prototype.acts.PlayByName,
 	cr.system_object.prototype.exps.choose,
@@ -28899,6 +32605,7 @@ cr.getObjectRefTable = function () { return [
 	cr.plugins_.Sprite.prototype.cnds.CompareInstanceVar,
 	cr.behaviors.Platform.prototype.acts.SimulateControl,
 	cr.plugins_.Touch.prototype.cnds.OnTouchObject,
+	cr.system_object.prototype.cnds.LayerVisible,
 	cr.plugins_.Sprite.prototype.cnds.IsAnimPlaying,
 	cr.plugins_.Sprite.prototype.acts.SetAnim,
 	cr.system_object.prototype.acts.Wait,
@@ -28928,7 +32635,6 @@ cr.getObjectRefTable = function () { return [
 	cr.plugins_.Sprite.prototype.acts.SetWidth,
 	cr.plugins_.Sprite.prototype.acts.SetHeight,
 	cr.plugins_.Sprite.prototype.exps.AnimationName,
-	cr.system_object.prototype.exps.abs,
 	cr.behaviors.Platform.prototype.acts.SetMaxSpeed,
 	cr.plugins_.Mouse.prototype.cnds.OnClick,
 	cr.plugins_.Sprite.prototype.cnds.OnAnimFinished,
@@ -28939,12 +32645,10 @@ cr.getObjectRefTable = function () { return [
 	cr.behaviors.Platform.prototype.cnds.IsOnFloor,
 	cr.plugins_.Sprite.prototype.acts.SetBoolInstanceVar,
 	cr.plugins_.Keyboard.prototype.cnds.IsKeyDown,
-	cr.plugins_.Photon.prototype.cnds.isJoinedToRoom,
-	cr.system_object.prototype.acts.GoToLayout,
+	cr.plugins_.Keyboard.prototype.cnds.OnKey,
+	cr.system_object.prototype.cnds.TriggerOnce,
 	cr.plugins_.Text.prototype.acts.SetInstanceVar,
 	cr.plugins_.Photon.prototype.cnds.onActorJoin,
-	cr.system_object.prototype.acts.SetVar,
-	cr.system_object.prototype.cnds.CompareVar,
 	cr.system_object.prototype.cnds.Compare,
 	cr.system_object.prototype.cnds.Else,
 	cr.system_object.prototype.acts.CreateObject,
@@ -28962,38 +32666,70 @@ cr.getObjectRefTable = function () { return [
 	cr.plugins_.Photon.prototype.exps.ActorNr,
 	cr.plugins_.Text.prototype.acts.Destroy,
 	cr.system_object.prototype.exps.str,
+	cr.plugins_.Photon.prototype.cnds.isJoinedToRoom,
 	cr.system_object.prototype.cnds.PickRandom,
 	cr.plugins_.Sprite.prototype.acts.Spawn,
 	cr.system_object.prototype.acts.AddVar,
 	cr.system_object.prototype.exps.random,
 	cr.plugins_.Text.prototype.acts.SetPosToObject,
 	cr.plugins_.Sprite.prototype.cnds.OnCollision,
-	cr.plugins_.Keyboard.prototype.cnds.OnKey,
-	cr.behaviors.scrollto.prototype.acts.Shake,
-	cr.plugins_.Sprite.prototype.exps.AsJSON,
-	cr.behaviors.Bullet.prototype.exps.AngleOfMotion,
-	cr.plugins_.Sprite.prototype.exps.Angle,
-	cr.plugins_.Particles.prototype.acts.SetAngle,
 	cr.plugins_.Function.prototype.cnds.OnFunction,
+	cr.plugins_.TiledBg.prototype.cnds.CompareInstanceVar,
 	cr.plugins_.TiledBg.prototype.acts.SetWidth,
 	cr.plugins_.Sprite.prototype.acts.SetEffect,
 	cr.plugins_.Sprite.prototype.acts.AddInstanceVar,
-	cr.behaviors.Rex_MoveTo.prototype.acts.SetTargetPosByDistanceAngle,
+	cr.plugins_.Sprite.prototype.acts.MoveForward,
+	cr.plugins_.Sprite.prototype.cnds.OnAnyAnimFinished,
+	cr.plugins_.Rex_Firebase_ItemTable.prototype.acts.LoadAllItems,
+	cr.plugins_.Rex_Firebase_ItemTable.prototype.cnds.OnLoadComplete,
+	cr.plugins_.Rex_Firebase_ItemTable.prototype.exps.At,
+	cr.system_object.prototype.cnds.Repeat,
+	cr.plugins_.Sprite.prototype.acts.SetSize,
+	cr.system_object.prototype.exps.loopindex,
+	cr.plugins_.Sprite.prototype.cnds.IsOverlapping,
+	cr.behaviors.Platform.prototype.cnds.OnFall,
+	cr.behaviors.Platform.prototype.acts.SetVectorY,
+	cr.system_object.prototype.cnds.PickByComparison,
+	cr.plugins_.Sprite.prototype.cnds.CompareY,
+	cr.behaviors.Platform.prototype.cnds.OnLand,
+	cr.system_object.prototype.exps.distance,
+	cr.plugins_.Sprite.prototype.cnds.CompareX,
+	cr.plugins_.Function.prototype.exps.Param,
+	cr.behaviors.Platform.prototype.cnds.CompareSpeed,
 	cr.plugins_.Sprite.prototype.cnds.IsOutsideLayout,
-	cr.system_object.prototype.cnds.TriggerOnce,
-	cr.behaviors.Rex_MoveTo.prototype.acts.Stop,
+	cr.behaviors.scrollto.prototype.acts.Shake,
+	cr.behaviors.Platform.prototype.acts.SetIgnoreInput,
+	cr.plugins_.Rex_Firebase_ItemTable.prototype.acts.SetValue,
+	cr.plugins_.Rex_Firebase_ItemTable.prototype.acts.Save,
+	cr.plugins_.Sprite.prototype.cnds.OnDestroyed,
 	cr.system_object.prototype.acts.ResetGlobals,
+	cr.system_object.prototype.acts.GoToLayout,
 	cr.plugins_.Photon.prototype.acts.reset,
+	cr.plugins_.Rex_Firebase_Leaderboard.prototype.acts.PostScore,
+	cr.behaviors.Pin.prototype.acts.Pin,
+	cr.plugins_.Arr.prototype.acts.SetX,
+	cr.plugins_.Arr.prototype.exps.AsJSON,
+	cr.plugins_.Arr.prototype.acts.JSONLoad,
+	cr.plugins_.Arr.prototype.acts.Clear,
+	cr.plugins_.Arr.prototype.exps.At,
+	cr.plugins_.Text.prototype.acts.SetVisible,
+	cr.plugins_.TiledBg.prototype.acts.SetVisible,
+	cr.plugins_.TextBox.prototype.acts.SetCSSStyle,
 	cr.plugins_.Photon.prototype.exps.StateString,
-	cr.system_object.prototype.acts.SetLayerVisible,
+	cr.plugins_.WebStorage.prototype.cnds.LocalStorageExists,
 	cr.plugins_.Photon.prototype.acts.connect,
 	cr.plugins_.Photon.prototype.cnds.onError,
 	cr.plugins_.Photon.prototype.cnds.onJoinedLobby,
 	cr.plugins_.Photon.prototype.acts.requestLobbyStats,
-	cr.system_object.prototype.cnds.LayerVisible,
+	cr.plugins_.Rex_Firebase_ItemTable.prototype.cnds.ForEachItemID,
+	cr.plugins_.Dictionary.prototype.cnds.HasKey,
+	cr.plugins_.Rex_Firebase_ItemTable.prototype.exps.CurItemID,
+	cr.plugins_.Dictionary.prototype.acts.AddKey,
 	cr.plugins_.TextBox.prototype.cnds.CompareText,
 	cr.plugins_.sirg_notifications.prototype.acts.AddNotification,
 	cr.plugins_.TextBox.prototype.exps.Text,
+	cr.plugins_.WebStorage.prototype.acts.StoreLocal,
+	cr.plugins_.Dictionary.prototype.acts.Clear,
 	cr.plugins_.Photon.prototype.cnds.isInLobby,
 	cr.system_object.prototype.cnds.PickAll,
 	cr.plugins_.Sprite.prototype.acts.SetOpacity,
@@ -29003,7 +32739,9 @@ cr.getObjectRefTable = function () { return [
 	cr.plugins_.Photon.prototype.cnds.onJoinRoom,
 	cr.plugins_.Browser.prototype.acts.ConsoleLog,
 	cr.plugins_.Photon.prototype.acts.setMyRoomMaxPlayers,
-	cr.plugins_.Mouse.prototype.cnds.OnObjectClicked,
-	cr.plugins_.Mouse.prototype.cnds.IsOverObject,
-	cr.plugins_.TextBox.prototype.acts.SetCSSStyle
+	cr.plugins_.Rex_Firebase_Leaderboard.prototype.acts.UpdateTopRanks,
+	cr.plugins_.Rex_Firebase_Leaderboard.prototype.cnds.OnUpdate,
+	cr.plugins_.Rex_Firebase_Leaderboard.prototype.exps.Rank2PlayerName,
+	cr.plugins_.Rex_Firebase_Leaderboard.prototype.exps.Rank2ExtraData,
+	cr.plugins_.Rex_Firebase_Leaderboard.prototype.exps.Rank2PlayerScore
 ];};

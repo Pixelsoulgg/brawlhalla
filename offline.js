@@ -1,5 +1,5 @@
 ﻿{
-	"version": 1686665149,
+	"version": 1688454702,
 	"fileList": [
 		"data.js",
 		"c2runtime.js",
@@ -17,7 +17,6 @@
 		"images/change_char_bt-sheet1.png",
 		"images/hp_bar.png",
 		"images/ui_elements-sheet0.png",
-		"images/ui_elements-sheet1.png",
 		"images/pistol-sheet0.png",
 		"images/bullet-sheet0.png",
 		"images/particles.png",
@@ -28,10 +27,13 @@
 		"images/mobile_controls-sheet0.png",
 		"images/background-sheet0.png",
 		"images/background-sheet1.png",
+		"images/background-sheet2.png",
+		"images/background-sheet3.png",
 		"images/level_objects-sheet0.png",
 		"images/respawn-sheet0.png",
 		"images/explosion-sheet0.png",
 		"images/explosion-sheet1.png",
+		"images/attack_effect-sheet0.png",
 		"media/damage_1.m4a",
 		"media/damage_1.ogg",
 		"media/damage_2.m4a",
@@ -60,10 +62,11 @@
 		"icon-128.png",
 		"icon-256.png",
 		"loading-logo.png",
-		"salsa-regular-webfont.woff",
-		"salsa-regular-webfont.woff2",
-		"webfont.css",
+		"silkscreen-regular-webfont.woff",
+		"silkscreen-regular-webfont.woff2",
+		"pixelwebfont.css",
 		"Photon-Javascript_SDK.min.js",
+		"firebase.js",
 		"jquery.gritter.js",
 		"jquery.gritter.css"
 	]
