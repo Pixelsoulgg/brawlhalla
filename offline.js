@@ -1,5 +1,5 @@
 ﻿{
-	"version": 1689317716,
+	"version": 1711550359,
 	"fileList": [
 		"data.js",
 		"c2runtime.js",
@@ -67,8 +67,9 @@
 		"silkscreen-regular-webfont.woff",
 		"silkscreen-regular-webfont.woff2",
 		"pixelwebfont.css",
+		"menu_url.json",
 		"Photon-Javascript_SDK.min.js",
-		"firebase.js",
+		"game_loader.js",
 		"jquery.gritter.js",
 		"jquery.gritter.css"
 	]
